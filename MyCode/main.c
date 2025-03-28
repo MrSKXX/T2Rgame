@@ -1,45 +1,53 @@
+/*
+ * main
+ * 
+ * 
+ * Structure globale:
+ * 1) Initialisation:
+ *    - Connexion au serveur
+ *    - Envoi du nom du joueur
+ *    - Configuration des paramètres du jeu
+ *    - Initialisation de l'état du jeu et de la stratégie
+ * 
+ * 2) Boucle principale:
+ *    - Récupération de l'état du plateau
+ *    - Alternance entre notre tour et celui de l'adversaire
+ *    - Notre tour: appel à playTurn ou playManualTurn selon le mode
+ *    - Tour adverse: mise à jour de notre état d'après le coup adverse
+ *    - Détection de la fin de partie
+ * 
+ * 3) Fin de partie:
+ *    - Affichage du plateau final
+ *    - Calcul et affichage du score final
+ *    - Libération des ressources
+ *    - Déconnexion du serveur
+ * 
+ * Cette fonction utilise une constante MANUAL_MODE pour basculer entre
+ * le mode IA et le mode manuel, permettant de tester les deux approches.
+ */
+
 #define JSMN_STATIC  
-#include "../tickettorideapi/codingGameServer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>  // Pour sleep()
+#include "../tickettorideapi/codingGameServer.h"
 #include "../tickettorideapi/ticketToRide.h"
-// gcc -o client main.c game_state.c move_logic.c path_finding.c strategy.c utils.c ../tickettorideapi/codingGameServer.c ../tickettorideapi/ticketToRide.c -I../tickettorideapi
+#include "gamestate.h"
+#include "player.h"
+#include "strategy.h"
+#include "rules.h"   // Pour isLastTurn et calculateScore
+#include "manual.h"  // Inclusion du nouveau module pour le mode manuel
 
-// Fonction pour afficher les informations d'une carte
-void printCardName(CardColor card) {
-    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                              "Orange", "Black", "Red", "Green", "Locomotive"};
-    if (card >= 0 && card < 10) {
-        printf("Card color: %s\n", cardNames[card]);
-    } else {
-        printf("Unknown card: %d\n", card);
-    }
-}
-
-// Fonction pour afficher les informations d'un objectif
-void printObjective(Objective objective) {
-    printf("From city %d to city %d, score %d\n", 
-           objective.from, objective.to, objective.score);
-    printf("  From: ");
-    printCity(objective.from);
-    printf(" to ");
-    printCity(objective.to);
-    printf("\n");
-}
-
-// Fonction pour libérer la mémoire allouée dans MoveResult
-void freeMoveResultMemory(MoveResult *moveResult) {
-    if (moveResult->opponentMessage) free(moveResult->opponentMessage);
-    if (moveResult->message) free(moveResult->message);
-}
+// Définition du mode de jeu (0 = IA, 1 = manuel)
+#define MANUAL_MODE 1
 
 int main() {
     const char* serverAddress = "82.64.1.174";
     unsigned int serverPort = 15001;
-    const char* playerName = "George0";
+    const char* playerName = "Georges2"; 
     
+    printf("Ticket to Ride AI Player - %s\n", playerName);
     printf("Attempting to connect to server at %s:%d\n", serverAddress, serverPort);
     
     // Connect to the server
@@ -78,11 +86,16 @@ int main() {
     // Print initial board state
     printBoard();
     
+    // Initialiser notre état de jeu et stratégie
+    GameState gameState;
+    StrategyType strategy = STRATEGY_BASIC;
+    
+    initPlayer(&gameState, strategy, &gameData);
+    
     // Main game variables
     ResultCode returnCode;
     MoveData opponentMove;
     MoveResult opponentMoveResult;
-    BoardState boardState;
     int gameRunning = 1;
     int firstMove = 1;
     
@@ -91,12 +104,24 @@ int main() {
         // Print current board state
         printBoard();
         
-        // Get board state
+        // Get board state to update our visible cards
+        BoardState boardState;
         returnCode = getBoardState(&boardState);
         if (returnCode != ALL_GOOD) {
             printf("Error getting board state: 0x%x\n", returnCode);
             break;
         }
+        
+        // Update our visible cards
+        for (int i = 0; i < 5; i++) {
+            gameState.visibleCards[i] = boardState.card[i];
+        }
+        
+        // Incrémentation et affichage du compteur de tours
+        gameState.turnCount++;
+        printf("\n===== TOUR N°%d =====\n", gameState.turnCount);
+        printf("Wagons restants - Nous: %d, Adversaire: %d\n", 
+               gameState.wagonsLeft, gameState.opponentWagonsLeft);
         
         // Try to get opponent's move
         returnCode = getMove(&opponentMove, &opponentMoveResult);
@@ -105,83 +130,60 @@ int main() {
         if (returnCode == OTHER_ERROR) {
             printf("It's our turn to play\n");
             
-            // First move - draw objectives
-            if (firstMove) {
-                printf("First move: drawing objectives\n");
-                MoveData myMove;
-                MoveResult myMoveResult;
-                
-                myMove.action = DRAW_OBJECTIVES;
-                
-                // Send move
-                returnCode = sendMove(&myMove, &myMoveResult);
+            // Choix du mode de jeu
+            if (MANUAL_MODE) {
+                // Mode manuel
+                if (firstMove) {
+                    returnCode = playManualFirstTurn(&gameState);
+                    firstMove = 0;
+                } else {
+                    returnCode = playManualTurn(&gameState);
+                }
                 
                 if (returnCode != ALL_GOOD) {
-                    printf("Error sending move: 0x%x\n", returnCode);
+                    // Vérifier si c'est un message de fin de partie
+                    printf("Error in manual turn: 0x%x\n", returnCode);
                     gameRunning = 0;
                     continue;
                 }
-                
-                printf("Received objectives, now choosing which to keep\n");
-                
-                // Display objectives
-                for (int i = 0; i < 3; i++) {
-                    printf("Objective %d: ", i+1);
-                    printObjective(myMoveResult.objectives[i]);
-                }
-                
-                // Free memory
-                freeMoveResultMemory(&myMoveResult);
-                
-                // Choose objectives
-                MoveData chooseMove;
-                MoveResult chooseMoveResult;
-                
-                chooseMove.action = CHOOSE_OBJECTIVES;
-                chooseMove.chooseObjectives[0] = true;
-                chooseMove.chooseObjectives[1] = true;
-                chooseMove.chooseObjectives[2] = true;
-                
-                // Send choice
-                returnCode = sendMove(&chooseMove, &chooseMoveResult);
-                
-                if (returnCode != ALL_GOOD) {
-                    printf("Error choosing objectives: 0x%x\n", returnCode);
-                    gameRunning = 0;
-                } else {
-                    printf("Successfully chose objectives\n");
-                    firstMove = 0;
-                }
-                
-                // Free memory
-                freeMoveResultMemory(&chooseMoveResult);
             } else {
-                // Regular turn - draw blind card
-                MoveData myMove;
-                MoveResult myMoveResult;
-                
-                myMove.action = DRAW_BLIND_CARD;
-                
-                // Send move
-                returnCode = sendMove(&myMove, &myMoveResult);
-                
-                if (returnCode != ALL_GOOD) {
-                    printf("Error sending move: 0x%x\n", returnCode);
-                    gameRunning = 0;
+                // Mode IA automatique (code existant)
+                if (firstMove) {
+                    returnCode = playFirstTurn(&gameState);
+                    
+                    if (returnCode != ALL_GOOD) {
+                        printf("Error in first turn: 0x%x\n", returnCode);
+                        gameRunning = 0;
+                        continue;
+                    }
+                    
+                    firstMove = 0;
                 } else {
-                    printf("Successfully drew a blind card: %d\n", myMoveResult.card);
-                    printCardName(myMoveResult.card);
+                    // Regular turn
+                    returnCode = playTurn(&gameState, strategy);
+                    
+                    if (returnCode != ALL_GOOD) {
+                        printf("Error in turn: 0x%x\n", returnCode);
+                        gameRunning = 0;
+                        continue;
+                    }
                 }
-                
-                // Free memory
-                freeMoveResultMemory(&myMoveResult);
+            }
+            
+            // Check if it's the last turn
+            if (isLastTurn(&gameState)) {
+                printf("LAST TURN: We have <= 2 wagons left\n");
+                gameState.lastTurn = 1;
             }
         }
         // Handle opponent's move
         else if (returnCode == ALL_GOOD) {
             printf("Opponent made a move of type: %d\n", opponentMove.action);
             
-            // Process opponent's move by type
+            // Update our game state based on opponent's move
+            updateAfterOpponentMove(&gameState, &opponentMove);
+            
+            // Process opponent's move by type for logging
             switch (opponentMove.action) {
                 case CLAIM_ROUTE:
                     printf("Opponent claimed route from %d to %d with color %d\n", 
@@ -191,7 +193,6 @@ int main() {
                     break;
                 case DRAW_CARD:
                     printf("Opponent drew visible card: %d\n", opponentMove.drawCard);
-                    printCardName(opponentMove.drawCard);
                     break;
                 case DRAW_BLIND_CARD:
                     printf("Opponent drew a blind card\n");
@@ -207,18 +208,61 @@ int main() {
             }
             
             // Free memory
-            freeMoveResultMemory(&opponentMoveResult);
+            cleanupMoveResult(&opponentMoveResult);
         }
         // Handle game end
         else if (returnCode == SERVER_ERROR || returnCode == PARAM_ERROR) {
             printf("Game has ended with code: 0x%x\n", returnCode);
+            
+            // Vérifier si c'est une fin normale (annonce d'un gagnant)
+            if (opponentMoveResult.message && strstr(opponentMoveResult.message, "winner")) {
+                char winner[100] = "unknown";
+                sscanf(opponentMoveResult.message, "{\"state\": 1, \"winner\": \"%99[^\"]\"}", winner);
+                printf("GAME OVER - Partie terminée normalement après %d tours\n", gameState.turnCount);
+                printf("Le gagnant est: %s\n", winner);
+            }
+            
+            printf("Final board state:\n");
+            printBoard();
+            printf("Final game state:\n");
+            printGameState(&gameState);
+            
+            // Calculate final score
+            int finalScore = calculateScore(&gameState);
+            printf("Final score: %d\n", finalScore);
+            printf("Partie terminée en %d tours.\n", gameState.turnCount);
+            
+            // Free memory
+            cleanupMoveResult(&opponentMoveResult);
+            
             gameRunning = 0;
         }
         // Handle unexpected errors
         else {
             printf("Unexpected error: 0x%x\n", returnCode);
-            gameRunning = 0;
+            
+            // Check if we received any error message from the server
+            if (opponentMoveResult.message) {
+                printf("Server message: %s\n", opponentMoveResult.message);
+                cleanupMoveResult(&opponentMoveResult);
+            }
+            
+            // If it's a serious error, exit the game
+            if (returnCode != OTHER_ERROR) {
+                gameRunning = 0;
+            }
         }
+        
+        // Print current game state for debugging
+        if (MANUAL_MODE) {
+            printManualGameState(&gameState);
+        } else {
+            printGameState(&gameState);
+        }
+        
+        // Calculate current score
+        int currentScore = calculateScore(&gameState);
+        printf("Current score: %d\n", currentScore);
         
         // Small pause to avoid server overload
         sleep(1);
