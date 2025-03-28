@@ -1,1 +1,3 @@
 tickettorideapi/.git/
+*.o
+tickettoridebot
