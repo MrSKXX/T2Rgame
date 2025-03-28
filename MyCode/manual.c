@@ -4,6 +4,7 @@
 #include "manual.h"
 #include "gamestate.h"
 #include "rules.h"
+#include "player.h"
 
 // Variable pour suivre si nous avons déjà pioché une carte ce tour-ci
 static int cardDrawnThisTurn = 0;  // 0 = début de tour, 1 = déjà pioché une carte
@@ -105,12 +106,14 @@ void printVisibleCards(CardColor* visibleCards) {
     for (int i = 0; i < 5; i++) {
         if (visibleCards[i] != NONE) {
             printf("Position %d: ", i+1);
-            printCardName(visibleCards[i]);
+            printCardNameManual(visibleCards[i]);
             printf("\n");
         }
     }
     printf("======================\n\n");
 }
+
+// Fonction pour prendre une route en mode manuel
 
 // Fonction pour prendre une route en mode manuel
 MoveData claimRouteManual(GameState* state) {
@@ -130,6 +133,8 @@ MoveData claimRouteManual(GameState* state) {
     // Afficher les routes disponibles
     printAvailableRoutes(state);
     
+    printf("(0 pour annuler et revenir au menu principal)\n");
+    
     int choiceMethod;
     printf("\nComment souhaitez-vous sélectionner la route?\n");
     printf("1. Par index (numéro de la route)\n");
@@ -137,12 +142,24 @@ MoveData claimRouteManual(GameState* state) {
     printf("Votre choix: ");
     scanf("%d", &choiceMethod);
     
+    if (choiceMethod == 0) {
+        printf("Opération annulée.\n");
+        move.action = DRAW_BLIND_CARD;  // Action par défaut en cas d'annulation
+        return move;
+    }
+    
     int routeIndex = -1;
     
     if (choiceMethod == 1) {
         // Sélection par index
         printf("\nEntrez l'index de la route à prendre: ");
         scanf("%d", &routeIndex);
+        
+        if (routeIndex == 0) {
+            printf("Opération annulée.\n");
+            move.action = DRAW_BLIND_CARD;
+            return move;
+        }
         
         // Vérifier que l'index est valide
         if (routeIndex < 0 || routeIndex >= state->nbTracks || state->routes[routeIndex].owner != 0) {
@@ -153,10 +170,23 @@ MoveData claimRouteManual(GameState* state) {
     } else {
         // Sélection par villes
         int fromCity, toCity;
-        printf("\nEntrez le numéro de la ville de départ: ");
+        printf("\nEntrez le numéro de la ville de départ (0 pour annuler): ");
         scanf("%d", &fromCity);
-        printf("Entrez le numéro de la ville d'arrivée: ");
+        
+        if (fromCity == 0) {
+            printf("Opération annulée.\n");
+            move.action = DRAW_BLIND_CARD;
+            return move;
+        }
+        
+        printf("Entrez le numéro de la ville d'arrivée (0 pour annuler): ");
         scanf("%d", &toCity);
+        
+        if (toCity == 0) {
+            printf("Opération annulée.\n");
+            move.action = DRAW_BLIND_CARD;
+            return move;
+        }
         
         // Rechercher la route correspondante
         for (int i = 0; i < state->nbTracks; i++) {
@@ -197,6 +227,43 @@ MoveData claimRouteManual(GameState* state) {
     }
     printf("\n");
     
+    // Cas spécial pour les routes qui nécessitent des locomotives
+    if (routeColor == LOCOMOTIVE) {
+        // Route spéciale qui nécessite uniquement des locomotives
+        printf("\nAttention: Cette route requiert UNIQUEMENT des cartes Locomotive.\n");
+        
+        // Vérifier si le joueur a assez de locomotives
+        if (state->nbCardsByColor[LOCOMOTIVE] < routeLength) {
+            printf("ERREUR: Cette route nécessite %d cartes Locomotive, mais vous n'en avez que %d.\n", 
+                routeLength, state->nbCardsByColor[LOCOMOTIVE]);
+            move.action = DRAW_BLIND_CARD;
+            return move;
+        }
+        
+        // Pour ces routes, la couleur est forcément LOCOMOTIVE et on utilise toutes les cartes locomotive
+        move.claimRoute.color = LOCOMOTIVE;
+        move.claimRoute.nbLocomotives = routeLength;
+        
+        printf("Vous utiliserez %d cartes Locomotive pour cette route.\n", routeLength);
+        printf("\nConfirmer? (1: Oui, 0: Non): ");
+        int confirm;
+        scanf("%d", &confirm);
+        
+        if (!confirm) {
+            printf("Opération annulée.\n");
+            move.action = DRAW_BLIND_CARD;
+        } else {
+            printf("Route confirmée: Index %d, Longueur %d\n", routeIndex, routeLength);
+        }
+        
+        // Vider le buffer d'entrée
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF);
+        
+        return move;
+    }
+    
+    // Pour les routes normales, continuer avec le processus standard
     // Choisir quelle couleur utiliser
     printf("\nCouleurs disponibles:\n");
     for (int i = 1; i < 10; i++) {
@@ -204,10 +271,17 @@ MoveData claimRouteManual(GameState* state) {
             printf("%d: %s (%d cartes)\n", i, getCardColorName(i), state->nbCardsByColor[i]);
         }
     }
+    printf("0: Annuler\n");
     
     printf("\nEntrez la couleur à utiliser (numéro): ");
     int colorChoice;
     scanf("%d", &colorChoice);
+    
+    if (colorChoice == 0) {
+        printf("Opération annulée.\n");
+        move.action = DRAW_BLIND_CARD;
+        return move;
+    }
     
     if (colorChoice < 1 || colorChoice > 9 || state->nbCardsByColor[colorChoice] == 0) {
         printf("ERREUR: Couleur invalide ou pas assez de cartes.\n");
@@ -227,20 +301,46 @@ MoveData claimRouteManual(GameState* state) {
     int maxLocomotives = (routeLength < state->nbCardsByColor[LOCOMOTIVE]) ? 
                           routeLength : state->nbCardsByColor[LOCOMOTIVE];
     
-    printf("Nombre de locomotives à utiliser (max %d): ", maxLocomotives);
-    scanf("%d", &move.claimRoute.nbLocomotives);
+    // Vérifier si nous avons assez de cartes de couleur sans locomotive
+    if (state->nbCardsByColor[move.claimRoute.color] >= routeLength) {
+        printf("Vous avez assez de cartes %s sans utiliser de locomotives.\n", 
+               getCardColorName(move.claimRoute.color));
+        printf("Nombre de locomotives à utiliser (max %d, 9 pour annuler): ", maxLocomotives);
+    } else {
+        // Calculer combien de locomotives sont nécessaires au minimum
+        int minLocomotives = routeLength - state->nbCardsByColor[move.claimRoute.color];
+        if (minLocomotives > state->nbCardsByColor[LOCOMOTIVE]) {
+            printf("ERREUR: Pas assez de cartes pour prendre cette route.\n");
+            move.action = DRAW_BLIND_CARD;
+            return move;
+        }
+        
+        printf("Vous devez utiliser au moins %d locomotives.\n", minLocomotives);
+        printf("Nombre de locomotives à utiliser (%d-%d, 9 pour annuler): ", 
+               minLocomotives, maxLocomotives);
+    }
     
-    if (move.claimRoute.nbLocomotives < 0 || move.claimRoute.nbLocomotives > state->nbCardsByColor[LOCOMOTIVE]) {
+    int locoChoice;
+    scanf("%d", &locoChoice);
+    
+    // 9 est utilisé pour annuler au lieu de 0, car 0 est une valeur valide pour les locomotives
+    if (locoChoice == 9) {
+        printf("Opération annulée.\n");
+        move.action = DRAW_BLIND_CARD;
+        return move;
+    }
+    
+    // Vérifier si le nombre de locomotives est valide
+    int minLocomotives = routeLength - state->nbCardsByColor[move.claimRoute.color];
+    if (minLocomotives < 0) minLocomotives = 0; // Au cas où
+    
+    if (locoChoice < minLocomotives || locoChoice > maxLocomotives) {
         printf("ERREUR: Nombre de locomotives invalide.\n");
         move.action = DRAW_BLIND_CARD;  // Action par défaut en cas d'erreur
         return move;
     }
     
-    if (move.claimRoute.nbLocomotives > routeLength) {
-        printf("ERREUR: Trop de locomotives pour cette route (longueur %d).\n", routeLength);
-        move.action = DRAW_BLIND_CARD;  // Action par défaut en cas d'erreur
-        return move;
-    }
+    move.claimRoute.nbLocomotives = locoChoice;
     
     // Vérifier si on a assez de cartes pour prendre la route
     int colorCards = state->nbCardsByColor[move.claimRoute.color];
@@ -289,7 +389,6 @@ MoveData claimRouteManual(GameState* state) {
         move.action = DRAW_BLIND_CARD;  // Action par défaut en cas d'annulation
     } else {
         // Stocker l'index de la route pour référence future
-        // (nous l'utiliserons pour la mise à jour dans playManualTurn)
         printf("Route confirmée: Index %d, Longueur %d\n", routeIndex, routeLength);
     }
     
@@ -303,22 +402,41 @@ MoveData claimRouteManual(GameState* state) {
 // Fonction pour obtenir un coup manuel de l'utilisateur
 MoveData getManualMove(GameState* state) {
     MoveData move;
-    int choice;
+    int choice = 0;
     
     // Si nous avons déjà pioché une carte (2ème carte du tour)
     if (cardDrawnThisTurn == 1) {
-        printf("\n=== DEUXIÈME CARTE ===\n");
-        printf("1. Piocher une carte aveugle\n");
-        printf("2. Piocher une carte visible (sauf locomotive)\n");
+        // C'est encore notre tour, pour la deuxième carte
+        // (ne pas incrémenter le compteur de tour ici)
         
-        printf("Votre choix: ");
-        if (scanf("%d", &choice) != 1 || (choice != 1 && choice != 2)) {
-            choice = 1;
+        while (1) {  // Boucle pour réessayer en cas d'entrée invalide
+            printf("\n=== DEUXIÈME CARTE ===\n");
+            printf("1. Piocher une carte aveugle\n");
+            printf("2. Piocher une carte visible (sauf locomotive)\n");
+            printf("0. Voir l'état actuel du jeu\n");
+            
+            printf("Votre choix: ");
+            if (scanf("%d", &choice) != 1 || (choice < 0 || choice > 2)) {
+                printf("Choix invalide. Veuillez réessayer.\n");
+                // Vider le buffer d'entrée
+                int c;
+                while ((c = getchar()) != '\n' && c != EOF);
+                continue;  // Retour au début de la boucle
+            }
+            
+            // Vider le buffer d'entrée
+            int c;
+            while ((c = getchar()) != '\n' && c != EOF);
+            
+            if (choice == 0) {
+                // Afficher l'état actuel du jeu
+                printManualGameState(state);
+                printVisibleCards(state->visibleCards);
+                continue;
+            }
+            
+            break;  // Sortir de la boucle si le choix est valide
         }
-        
-        // Vider le buffer d'entrée
-        int c;
-        while ((c = getchar()) != '\n' && c != EOF);
         
         if (choice == 1) {
             move.action = DRAW_BLIND_CARD;
@@ -344,19 +462,28 @@ MoveData getManualMove(GameState* state) {
                 return move;
             }
             
-            printf("Quelle carte piocher (1-5): ");
+            printf("Quelle carte piocher (1-5, 0 pour revenir): ");
             int cardIndex;
-            if (scanf("%d", &cardIndex) != 1 || cardIndex < 1 || cardIndex > 5 || 
+            scanf("%d", &cardIndex);
+            
+            // Vider le buffer d'entrée
+            int c;
+            while ((c = getchar()) != '\n' && c != EOF);
+            
+            if (cardIndex == 0) {
+                // Retourner au menu de choix de la seconde carte
+                return getManualMove(state);
+            }
+            
+            if (cardIndex < 1 || cardIndex > 5 || 
                 state->visibleCards[cardIndex-1] == NONE || 
                 state->visibleCards[cardIndex-1] == LOCOMOTIVE) {
+                printf("Choix invalide, pioche aveugle par défaut.\n");
                 move.action = DRAW_BLIND_CARD;
             } else {
                 move.action = DRAW_CARD;
                 move.drawCard = state->visibleCards[cardIndex-1];
             }
-            
-            // Vider le buffer d'entrée
-            while ((c = getchar()) != '\n' && c != EOF);
             
             cardDrawnThisTurn = 0;  // Réinitialiser pour le prochain tour
             return move;
@@ -364,38 +491,61 @@ MoveData getManualMove(GameState* state) {
     }
     
     // Début de tour - Choix libre
-    printf("\n=== MODE MANUEL ===\n");
-    printf("1. Piocher des cartes\n");
-    printf("2. Prendre une route\n");
-    printf("3. Piocher des objectifs\n");
-    
-    printf("Votre choix: ");
-    if (scanf("%d", &choice) != 1 || choice < 1 || choice > 3) {
-        choice = 1;
+    while (1) {  // Boucle pour permettre de réessayer en cas d'erreur
+        printf("\n=== MODE MANUEL ===\n");
+        printf("1. Piocher des cartes\n");
+        printf("2. Prendre une route\n");
+        printf("3. Piocher des objectifs\n");
+        printf("0. Voir l'état actuel du jeu\n");
+        
+        printf("Votre choix: ");
+        if (scanf("%d", &choice) != 1 || choice < 0 || choice > 3) {
+            printf("Choix invalide. Veuillez réessayer.\n");
+            // Vider le buffer d'entrée
+            int c;
+            while ((c = getchar()) != '\n' && c != EOF);
+            continue;  // Retour au début de la boucle
+        }
+        
+        // Vider le buffer d'entrée
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF);
+        
+        if (choice == 0) {
+            // Afficher l'état actuel du jeu
+            printManualGameState(state);
+            printVisibleCards(state->visibleCards);
+            continue;
+        }
+        
+        break;  // Sortir de la boucle si le choix est valide
     }
-    
-    // Vider le buffer d'entrée
-    int c;
-    while ((c = getchar()) != '\n' && c != EOF);
     
     switch (choice) {
         case 1: // Piocher des cartes
             printf("Comment piocher la première carte?\n");
             printf("1. Carte aveugle\n");
             printf("2. Carte visible\n");
+            printf("0. Retour au menu principal\n");
             
             printf("Votre choix: ");
             int pickChoice;
-            if (scanf("%d", &pickChoice) != 1 || (pickChoice != 1 && pickChoice != 2)) {
+            if (scanf("%d", &pickChoice) != 1 || (pickChoice < 0 || pickChoice > 2)) {
                 pickChoice = 1;
             }
             
             // Vider le buffer d'entrée
+            int c;
             while ((c = getchar()) != '\n' && c != EOF);
+            
+            if (pickChoice == 0) {
+                // Retour au menu principal
+                return getManualMove(state);
+            }
             
             if (pickChoice == 1) {
                 move.action = DRAW_BLIND_CARD;
-                cardDrawnThisTurn = 1;  // Pour piocher une deuxième carte au prochain tour
+                cardDrawnThisTurn = 1;  // Marquer que nous avons pioché une carte, mais PAS comme un tour complet
                 return move;
             } else {
                 // Afficher les cartes visibles
@@ -403,14 +553,24 @@ MoveData getManualMove(GameState* state) {
                 for (int i = 0; i < 5; i++) {
                     if (state->visibleCards[i] != NONE) {
                         printf("%d: ", i+1);
-                        printCardName(state->visibleCards[i]);
+                        printCardNameManual(state->visibleCards[i]);
                         printf("\n");
                     }
                 }
                 
-                printf("Quelle carte piocher (1-5): ");
+                printf("Quelle carte piocher (1-5, 0 pour revenir): ");
                 int cardIndex;
-                if (scanf("%d", &cardIndex) != 1 || cardIndex < 1 || cardIndex > 5 || 
+                scanf("%d", &cardIndex);
+                
+                // Vider le buffer d'entrée
+                while ((c = getchar()) != '\n' && c != EOF);
+                
+                if (cardIndex == 0) {
+                    // Retour au choix de carte
+                    return getManualMove(state);
+                }
+                
+                if (cardIndex < 1 || cardIndex > 5 || 
                     state->visibleCards[cardIndex-1] == NONE) {
                     printf("Choix invalide, pioche aveugle par défaut.\n");
                     move.action = DRAW_BLIND_CARD;
@@ -428,15 +588,29 @@ MoveData getManualMove(GameState* state) {
                     }
                 }
                 
-                // Vider le buffer d'entrée
-                while ((c = getchar()) != '\n' && c != EOF);
-                
                 return move;
             }
             break;
             
         case 2: // Prendre une route
-            return claimRouteManual(state);
+            while (1) {
+                move = claimRouteManual(state);
+                if (move.action != CLAIM_ROUTE) {
+                    printf("Voulez-vous réessayer de prendre une route? (1: Oui, 0: Non): ");
+                    int retry;
+                    scanf("%d", &retry);
+                    // Vider le buffer
+                    int c;
+                    while ((c = getchar()) != '\n' && c != EOF);
+                    
+                    if (retry) continue;
+                    
+                    // Si l'utilisateur ne veut pas réessayer, retour au menu principal
+                    return getManualMove(state);
+                }
+                break;
+            }
+            return move;
             
         case 3: // Piocher des objectifs
             move.action = DRAW_OBJECTIVES;
@@ -471,15 +645,13 @@ void chooseObjectivesManual(GameState* state, Objective* objectives, bool* choic
         choices[i] = false;
     }
     
-    printf("Entrez les numéros des objectifs à garder (séparés par des espaces): ");
+    printf("Entrez les numéros des objectifs à garder (séparés par des espaces, 0 pour terminer): ");
     int choice;
     bool hasChosen = false;
     
     // Lire les choix
-    for (int i = 0; i < 3; i++) {
-        if (scanf("%d", &choice) != 1) {
-            break;
-        }
+    while (scanf("%d", &choice) == 1) {
+        if (choice == 0) break;
         
         if (choice >= 1 && choice <= 3) {
             choices[choice-1] = true;
@@ -566,21 +738,6 @@ ResultCode playManualTurn(GameState* state) {
         chooseMove.chooseObjectives[1] = chooseObjectives[1];
         chooseMove.chooseObjectives[2] = chooseObjectives[2];
         
-        // Libérer la mémoire du premier résultat
-        cleanupMoveResult(&myMoveResult);
-        
-        // Envoyer le choix des objectifs
-        returnCode = sendMove(&chooseMove, &chooseMoveResult);
-        
-        if (returnCode != ALL_GOOD) {
-            printf("Erreur lors du choix des objectifs: 0x%x\n", returnCode);
-            if (chooseMoveResult.message) {
-                printf("Message du serveur: %s\n", chooseMoveResult.message);
-            }
-            cleanupMoveResult(&chooseMoveResult);
-            return returnCode;
-        }
-        
         // Calculer combien d'objectifs nous gardons
         int objectivesToKeep = 0;
         for (int i = 0; i < 3; i++) {
@@ -596,6 +753,21 @@ ResultCode playManualTurn(GameState* state) {
             if (chooseObjectives[i]) {
                 chosenObjectives[idx++] = myMoveResult.objectives[i];
             }
+        }
+        
+        // Libérer la mémoire du premier résultat
+        cleanupMoveResult(&myMoveResult);
+        
+        // Envoyer le choix des objectifs
+        returnCode = sendMove(&chooseMove, &chooseMoveResult);
+        
+        if (returnCode != ALL_GOOD) {
+            printf("Erreur lors du choix des objectifs: 0x%x\n", returnCode);
+            if (chooseMoveResult.message) {
+                printf("Message du serveur: %s\n", chooseMoveResult.message);
+            }
+            cleanupMoveResult(&chooseMoveResult);
+            return returnCode;
         }
         
         // Ajouter les objectifs à notre état
@@ -622,24 +794,24 @@ ResultCode playManualTurn(GameState* state) {
     // Traiter le résultat en fonction du type d'action
     switch (myMove.action) {
         case CLAIM_ROUTE:
-    // Utilisez exactement la même séquence que l'IA
-    addClaimedRoute(state, myMove.claimRoute.from, myMove.claimRoute.to);
-    
-    // Trouve la longueur de la route
-    int routeLength = 0;
-    for (int i = 0; i < state->nbTracks; i++) {
-        if ((state->routes[i].from == myMove.claimRoute.from && state->routes[i].to == myMove.claimRoute.to) ||
-            (state->routes[i].from == myMove.claimRoute.to && state->routes[i].to == myMove.claimRoute.from)) {
-            routeLength = state->routes[i].length;
+            // Utiliser la fonction existante pour mettre à jour l'état (identique à l'IA)
+            addClaimedRoute(state, myMove.claimRoute.from, myMove.claimRoute.to);
+            
+            // Trouve la longueur de la route
+            int routeLength = 0;
+            for (int i = 0; i < state->nbTracks; i++) {
+                if ((state->routes[i].from == myMove.claimRoute.from && state->routes[i].to == myMove.claimRoute.to) ||
+                    (state->routes[i].from == myMove.claimRoute.to && state->routes[i].to == myMove.claimRoute.from)) {
+                    routeLength = state->routes[i].length;
+                    break;
+                }
+            }
+            
+            // Retire les cartes utilisées
+            removeCardsForRoute(state, myMove.claimRoute.color, routeLength, myMove.claimRoute.nbLocomotives);
+            
+            printf("Route prise avec succès!\n");
             break;
-        }
-    }
-    
-    // Retire les cartes utilisées
-    removeCardsForRoute(state, myMove.claimRoute.color, routeLength, myMove.claimRoute.nbLocomotives);
-    
-    printf("Route prise avec succès!\n");
-    break;
             
         case DRAW_CARD:
             // Ajouter la carte visible à notre main
@@ -660,6 +832,24 @@ ResultCode playManualTurn(GameState* state) {
     
     // Mettre à jour la connectivité des villes
     updateCityConnectivity(state);
+    
+    // Résumé de l'action
+    printf("\n=== RÉSUMÉ DE L'ACTION ===\n");
+    printf("Action effectuée: ");
+    switch (myMove.action) {
+        case CLAIM_ROUTE:
+            printf("Route prise de ville %d à ville %d\n", myMove.claimRoute.from, myMove.claimRoute.to);
+            break;
+        case DRAW_CARD:
+            printf("Carte visible piochée: %s\n", getCardColorName(myMove.drawCard));
+            break;
+        case DRAW_BLIND_CARD:
+            printf("Carte aveugle piochée: %s\n", getCardColorName(myMoveResult.card));
+            break;
+    }
+    printf("Wagons restants: %d\n", state->wagonsLeft);
+    printf("Nombre de cartes en main: %d\n", state->nbCards);
+    printf("==========================\n");
     
     // Libérer la mémoire
     cleanupMoveResult(&myMoveResult);
