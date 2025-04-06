@@ -227,44 +227,13 @@ MoveData claimRouteManual(GameState* state) {
     }
     printf("\n");
     
-    // Cas spécial pour les routes qui nécessitent des locomotives
+    // Cas spécial pour les routes grises (identifiées par la couleur LOCOMOTIVE)
     if (routeColor == LOCOMOTIVE) {
-        // Route spéciale qui nécessite uniquement des locomotives
-        printf("\nAttention: Cette route requiert UNIQUEMENT des cartes Locomotive.\n");
-        
-        // Vérifier si le joueur a assez de locomotives
-        if (state->nbCardsByColor[LOCOMOTIVE] < routeLength) {
-            printf("ERREUR: Cette route nécessite %d cartes Locomotive, mais vous n'en avez que %d.\n", 
-                routeLength, state->nbCardsByColor[LOCOMOTIVE]);
-            move.action = DRAW_BLIND_CARD;
-            return move;
-        }
-        
-        // Pour ces routes, la couleur est forcément LOCOMOTIVE et on utilise toutes les cartes locomotive
-        move.claimRoute.color = LOCOMOTIVE;
-        move.claimRoute.nbLocomotives = routeLength;
-        
-        printf("Vous utiliserez %d cartes Locomotive pour cette route.\n", routeLength);
-        printf("\nConfirmer? (1: Oui, 0: Non): ");
-        int confirm;
-        scanf("%d", &confirm);
-        
-        if (!confirm) {
-            printf("Opération annulée.\n");
-            move.action = DRAW_BLIND_CARD;
-        } else {
-            printf("Route confirmée: Index %d, Longueur %d\n", routeIndex, routeLength);
-        }
-        
-        // Vider le buffer d'entrée
-        int c;
-        while ((c = getchar()) != '\n' && c != EOF);
-        
-        return move;
+        // Route grise qui peut être prise avec n'importe quelle couleur uniforme
+        printf("\nC'est une route grise. Vous pouvez utiliser n'importe quelle couleur de carte (uniforme).\n");
     }
     
-    // Pour les routes normales, continuer avec le processus standard
-    // Choisir quelle couleur utiliser
+    // Pour toutes les routes, on permet au joueur de choisir une couleur
     printf("\nCouleurs disponibles:\n");
     for (int i = 1; i < 10; i++) {
         if (state->nbCardsByColor[i] > 0) {
@@ -290,6 +259,15 @@ MoveData claimRouteManual(GameState* state) {
     }
     
     move.claimRoute.color = (CardColor)colorChoice;
+    
+    // Vérifier si la couleur est valide pour cette route (sauf pour les routes grises)
+    if (routeColor != LOCOMOTIVE && routeColor != move.claimRoute.color && 
+        routeSecondColor != move.claimRoute.color && move.claimRoute.color != LOCOMOTIVE) {
+        printf("ERREUR: La couleur %s n'est pas valide pour cette route.\n", 
+               getCardColorName(move.claimRoute.color));
+        move.action = DRAW_BLIND_CARD;  // Action par défaut en cas d'erreur
+        return move;
+    }
     
     // Demander le nombre de locomotives à utiliser
     printf("\nLongueur de la route: %d\n", routeLength);
@@ -353,15 +331,6 @@ MoveData claimRouteManual(GameState* state) {
     if (colorCards < requiredColorCards) {
         printf("ERREUR: Pas assez de cartes %s. Besoin de %d, vous en avez %d.\n", 
                getCardColorName(move.claimRoute.color), requiredColorCards, colorCards);
-        move.action = DRAW_BLIND_CARD;  // Action par défaut en cas d'erreur
-        return move;
-    }
-    
-    // Vérifier si la couleur est valide pour cette route
-    if (routeColor != move.claimRoute.color && routeSecondColor != move.claimRoute.color && 
-        move.claimRoute.color != LOCOMOTIVE) {
-        printf("ERREUR: La couleur %s n'est pas valide pour cette route.\n", 
-               getCardColorName(move.claimRoute.color));
         move.action = DRAW_BLIND_CARD;  // Action par défaut en cas d'erreur
         return move;
     }

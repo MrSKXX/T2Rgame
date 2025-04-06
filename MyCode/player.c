@@ -152,6 +152,9 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
     MoveResult myMoveResult;
     BoardState boardState;
     
+    // Variable statique pour suivre si une carte a déjà été piochée ce tour
+    static int cardDrawnThisTurn = 0;  // 0 = début de tour, 1 = une carte non-locomotive déjà piochée
+    
     // Récupère l'état du plateau (cartes visibles)
     returnCode = getBoardState(&boardState);
     if (returnCode != ALL_GOOD) {
@@ -164,11 +167,62 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
         state->visibleCards[i] = boardState.card[i];
     }
     
-    // Décide de l'action à effectuer selon la stratégie
-    if (!decideNextMove(state, strategy, &myMove)) {
-        // Si aucune décision n'a été prise, on pioche une carte aveugle par défaut
-        printf("No specific move decided, drawing blind card by default\n");
-        myMove.action = DRAW_BLIND_CARD;
+    // Si nous avons déjà pioché une carte non-locomotive ce tour-ci
+    if (cardDrawnThisTurn == 1) {
+        printf("Second card draw this turn - cannot draw a visible locomotive\n");
+        
+        // Pour la seconde carte, on ne peut pas prendre de locomotive visible
+        // Soit une carte visible non-locomotive, soit une carte aveugle
+        
+        // Vérifier s'il y a des cartes visibles non-locomotive
+        CardColor cardToDraw = (CardColor)-1;
+        for (int i = 0; i < 5; i++) {
+            if (state->visibleCards[i] != LOCOMOTIVE && state->visibleCards[i] != NONE) {
+                cardToDraw = state->visibleCards[i];
+                break;
+            }
+        }
+        
+        if (cardToDraw != (CardColor)-1) {
+            // Il y a une carte visible non-locomotive disponible
+            myMove.action = DRAW_CARD;
+            myMove.drawCard = cardToDraw;
+            printf("Drawing second visible card: ");
+            printCardName(cardToDraw);
+        } else {
+            // Pas de carte visible non-locomotive, on pioche une carte aveugle
+            myMove.action = DRAW_BLIND_CARD;
+            printf("Drawing second blind card\n");
+        }
+        
+        // Réinitialiser le compteur pour le prochain tour
+        cardDrawnThisTurn = 0;
+    } else {
+        // Début de tour normal - toutes les options sont disponibles
+        
+        // Décide de l'action à effectuer selon la stratégie
+        if (!decideNextMove(state, strategy, &myMove)) {
+            // Si aucune décision n'a été prise, on pioche une carte aveugle par défaut
+            printf("No specific move decided, drawing blind card by default\n");
+            myMove.action = DRAW_BLIND_CARD;
+        }
+        
+        // Si l'action est de piocher une carte visible non-locomotive,
+        // on marque qu'on a pioché une carte pour ce tour
+        if (myMove.action == DRAW_CARD && myMove.drawCard != LOCOMOTIVE) {
+            cardDrawnThisTurn = 1;  // On a pioché une carte non-locomotive
+            printf("First card drawn this turn is not a locomotive - will need to draw a second card\n");
+        } 
+        // Si c'est une locomotive visible, on ne piochera pas de seconde carte
+        else if (myMove.action == DRAW_CARD && myMove.drawCard == LOCOMOTIVE) {
+            cardDrawnThisTurn = 0;  // Pas besoin de piocher une seconde carte
+            printf("First card drawn this turn is a locomotive - turn will end after this\n");
+        }
+        // Les autres actions (prendre une route, piocher des objectifs, piocher une carte aveugle)
+        // terminent également le tour
+        else {
+            cardDrawnThisTurn = 0;
+        }
     }
     
     // Affiche l'action choisie
@@ -335,6 +389,13 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
     
     // Met à jour la connectivité des villes après notre action
     updateCityConnectivity(state);
+    
+    // Si nous avons pioché une carte non-locomotive et que c'est 
+    // notre première carte, on doit piocher une seconde carte
+    if (cardDrawnThisTurn == 1) {
+        printf("\nNeed to draw a second card for this turn\n");
+        return playTurn(state, strategy);  // Appel récursif pour la seconde carte
+    }
     
     return ALL_GOOD;
 }

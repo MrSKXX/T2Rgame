@@ -40,17 +40,17 @@
 #include "manual.h"  // Inclusion du nouveau module pour le mode manuel
 
 // Définition du mode de jeu (0 = IA, 1 = manuel)
-#define MANUAL_MODE 1
+#define MANUAL_MODE 0
 
 int main() {
     const char* serverAddress = "82.64.1.174";
     unsigned int serverPort = 15001;
-    const char* playerName = "Georges2"; 
+    const char* playerName = "Georges2222"; 
     
     printf("Ticket to Ride AI Player - %s\n", playerName);
     printf("Attempting to connect to server at %s:%d\n", serverAddress, serverPort);
     
-    // Connect to the server
+    // Connect to the servers
     ResultCode result = connectToCGS(serverAddress, serverPort);
     if (result != ALL_GOOD) {
         printf("Failed to connect to server. Error code: 0x%x\n", result);

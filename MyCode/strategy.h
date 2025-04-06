@@ -65,14 +65,44 @@ void chooseObjectivesStrategy(GameState* state, Objective* objectives, bool* cho
 int chooseCardToDraw(GameState* state, CardColor* visibleCards);
 
 /**
+ * Vérifie si une route fait partie d'un chemin
+ * @param from Ville de départ de la route
+ * @param to Ville d'arrivée de la route
+ * @param path Tableau des indices des villes formant le chemin
+ * @param pathLength Longueur du chemin
+ * @return 1 si la route fait partie du chemin, 0 sinon
+ */
+int isRouteInPath(int from, int to, int* path, int pathLength);
+
+/**
+ * Évalue l'utilité d'une route par rapport aux objectifs
+ * @param state État actuel du jeu
+ * @param routeIndex Index de la route à évaluer
+ * @return Score d'utilité de la route
+ */
+int evaluateRouteUtility(GameState* state, int routeIndex);
+
+/**
+ * Trie les routes possibles par ordre d'utilité décroissante
+ * @param state État actuel du jeu
+ * @param possibleRoutes Tableau des indices des routes possibles
+ * @param possibleColors Tableau des couleurs possibles pour chaque route
+ * @param possibleLocomotives Tableau du nombre de locomotives pour chaque route
+ * @param numPossibleRoutes Nombre de routes possibles
+ */
+void sortRoutesByUtility(GameState* state, int* possibleRoutes, CardColor* possibleColors, 
+                         int* possibleLocomotives, int numPossibleRoutes);
+
+/**
  * Implémentation de l'algorithme de Dijkstra
  * Trouve le chemin le plus court entre deux villes
  * @param state État actuel du jeu
  * @param start Ville de départ
  * @param end Ville d'arrivée
  * @param path Tableau à remplir avec les indices des villes formant le chemin
- * @return Longueur du chemin ou -1 si aucun chemin n'est trouvé
+ * @param pathLength Pointeur à remplir avec la longueur du chemin
+ * @return Distance du chemin ou -1 si aucun chemin n'est trouvé
  */
-int findShortestPath(GameState* state, int start, int end, int* path);
+int findShortestPath(GameState* state, int start, int end, int* path, int* pathLength);
 
 #endif // STRATEGY_H

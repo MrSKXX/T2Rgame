@@ -24,7 +24,7 @@
  * - Optimisation (nombre de locomotives)
  */
 
-int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLocomotives) {
+ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLocomotives) {
     // Vérifie si l'état est correctement initialisé
     if (!state) {
         return 0;
@@ -64,7 +64,10 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
     CardColor routeColor = state->routes[routeIndex].color;
     CardColor routeSecondColor = state->routes[routeIndex].secondColor;
     
-    if (routeColor != color && routeSecondColor != color && color != 0) {
+    // Modification: Si la route est grise (routeColor == LOCOMOTIVE), toute couleur est valide
+    // Si ce n'est pas une route grise, vérifier si la couleur est valide
+    if (routeColor != LOCOMOTIVE && routeSecondColor != LOCOMOTIVE && 
+        routeColor != color && routeSecondColor != color && color != LOCOMOTIVE) {
         return 0;
     }
     
@@ -72,7 +75,7 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
     int colorCards = state->nbCardsByColor[color];
     int locomotives = state->nbCardsByColor[LOCOMOTIVE];
     
-    // Si on utilise des locomotives, on les compte différemment
+    // Si on utilise des locomotives comme couleur principale
     if (color == LOCOMOTIVE) {
         if (locomotives >= length) {
             *nbLocomotives = length; // Toutes les cartes sont des locomotives
@@ -97,7 +100,6 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
 }
 
 
-
 /*
  * findPossibleRoutes
  * 
@@ -119,7 +121,7 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
  */
 
 
-int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibleColors, int* possibleLocomotives) {
+ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibleColors, int* possibleLocomotives) {
     int count = 0;
     
     // Vérification des paramètres
@@ -143,27 +145,37 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
                 continue;
             }
             
-            // Définir les couleurs à vérifier (optimisation)
-            CardColor colorsToCheck[3];
+            // Liste des couleurs à vérifier
+            CardColor colorsToCheck[10]; // 9 couleurs + NONE
             int numColorsToCheck = 0;
             
-            // Ajouter la couleur principale de la route si nous avons des cartes de cette couleur
-            if (routeColor != NONE && state->nbCardsByColor[routeColor] > 0) {
-                colorsToCheck[numColorsToCheck++] = routeColor;
+            // Cas spécial: route grise (routeColor == LOCOMOTIVE)
+            if (routeColor == LOCOMOTIVE || routeSecondColor == LOCOMOTIVE) {
+                // Pour les routes grises, toutes les couleurs dont on a des cartes sont valides
+                for (int c = 1; c < 10; c++) { // Commence à 1 pour éviter NONE
+                    if (state->nbCardsByColor[c] > 0) {
+                        colorsToCheck[numColorsToCheck++] = c;
+                    }
+                }
+            } else {
+                // Pour les routes colorées, uniquement la(les) couleur(s) de la route
+                if (routeColor != NONE && state->nbCardsByColor[routeColor] > 0) {
+                    colorsToCheck[numColorsToCheck++] = routeColor;
+                }
+                
+                if (routeSecondColor != NONE && routeSecondColor != routeColor && 
+                    state->nbCardsByColor[routeSecondColor] > 0) {
+                    colorsToCheck[numColorsToCheck++] = routeSecondColor;
+                }
             }
             
-            // Ajouter la couleur secondaire de la route si différente et si nous avons des cartes
-            if (routeSecondColor != NONE && routeSecondColor != routeColor && 
-                state->nbCardsByColor[routeSecondColor] > 0) {
-                colorsToCheck[numColorsToCheck++] = routeSecondColor;
-            }
-            
-            // Ajouter la locomotive si nous en avons
-            if (state->nbCardsByColor[LOCOMOTIVE] > 0) {
+            // Ajouter les locomotives comme option si on en a
+            if (state->nbCardsByColor[LOCOMOTIVE] > 0 && 
+                (numColorsToCheck == 0 || routeColor == LOCOMOTIVE || routeSecondColor == LOCOMOTIVE)) {
                 colorsToCheck[numColorsToCheck++] = LOCOMOTIVE;
             }
             
-            // Si nous n'avons aucune carte des couleurs de la route et pas de locomotive, passer à la suivante
+            // Si nous n'avons aucune carte utilisable pour cette route, passer à la suivante
             if (numColorsToCheck == 0) {
                 continue;
             }
@@ -194,7 +206,11 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
                                count, from, to, color, length, nbLocomotives);
                         
                         count++;
-                        break; // Une seule couleur par route
+                        // Ne pas sortir de la boucle ici pour les routes grises
+                        // Cela permet d'explorer plusieurs couleurs possibles pour la même route
+                        if (routeColor != LOCOMOTIVE && routeSecondColor != LOCOMOTIVE) {
+                            break; // Une seule couleur par route (sauf pour les routes grises)
+                        }
                     }
                 }
             }
