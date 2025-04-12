@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -g
 
-SRCS = main.c gamestate.c player.c rules.c strategy.c manual.c ../tickettorideapi/ticketToRide.c ../tickettorideapi/codingGameServer.c
+SRCS = main.c gamestate.c player.c rules.c strategy.c manual.c ../tickettorideapi/ticketToRide.c ../tickettorideapi/clientAPI.c
 OBJS = $(SRCS:.c=.o)
 EXEC = tickettoridebot
 

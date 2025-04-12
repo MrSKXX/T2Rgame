@@ -1,76 +1,39 @@
-/*
- * main
- * 
- * 
- * Structure globale:
- * 1) Initialisation:
- *    - Connexion au serveur
- *    - Envoi du nom du joueur
- *    - Configuration des paramètres du jeu
- *    - Initialisation de l'état du jeu et de la stratégie
- * 
- * 2) Boucle principale:
- *    - Récupération de l'état du plateau
- *    - Alternance entre notre tour et celui de l'adversaire
- *    - Notre tour: appel à playTurn ou playManualTurn selon le mode
- *    - Tour adverse: mise à jour de notre état d'après le coup adverse
- *    - Détection de la fin de partie
- * 
- * 3) Fin de partie:
- *    - Affichage du plateau final
- *    - Calcul et affichage du score final
- *    - Libération des ressources
- *    - Déconnexion du serveur
- * 
- * Cette fonction utilise une constante MANUAL_MODE pour basculer entre
- * le mode IA et le mode manuel, permettant de tester les deux approches.
- */
-
-#define JSMN_STATIC  
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>  // Pour sleep()
-#include "../tickettorideapi/codingGameServer.h"
 #include "../tickettorideapi/ticketToRide.h"
+#include "../tickettorideapi/clientAPI.h"
 #include "gamestate.h"
 #include "player.h"
 #include "strategy.h"
-#include "rules.h"   // Pour isLastTurn et calculateScore
-#include "manual.h"  // Inclusion du nouveau module pour le mode manuel
+#include "rules.h"
+#include "manual.h"
 
 // Définition du mode de jeu (0 = IA, 1 = manuel)
 #define MANUAL_MODE 0
 
 int main() {
-    const char* serverAddress = "82.64.1.174";
+    const char* serverAddress = "82.29.170.160";
     unsigned int serverPort = 15001;
     const char* playerName = "Georges2222"; 
     
     printf("Ticket to Ride AI Player - %s\n", playerName);
     printf("Attempting to connect to server at %s:%d\n", serverAddress, serverPort);
     
-    // Connect to the servers
-    ResultCode result = connectToCGS(serverAddress, serverPort);
+    // Connect to the server
+    ResultCode result = connectToCGS(serverAddress, serverPort, playerName);
     if (result != ALL_GOOD) {
         printf("Failed to connect to server. Error code: 0x%x\n", result);
         return 1;
     }
     printf("Successfully connected to server!\n");
     
-    // Send player name
-    result = sendName(playerName);
-    if (result != ALL_GOOD) {
-        printf("Failed to send name to server. Error code: 0x%x\n", result);
-        return 1;
-    }
-    printf("Successfully sent player name: %s\n", playerName);
-    
     // Configure game settings
-    GameSettings gameSettings = GameSettingsDefaults;
+    const char* gameSettings = "TRAINING NICE_BOT"; // Par exemple, jouer contre NICE_BOT
     
     // Prepare to receive game data
-    GameData gameData = GameDataDefaults;
+    GameData gameData;
     
     // Send game settings and get game data
     result = sendGameSettings(gameSettings, &gameData);
@@ -98,6 +61,7 @@ int main() {
     MoveResult opponentMoveResult;
     int gameRunning = 1;
     int firstMove = 1;
+    int ourTurn = 0; // Par défaut, supposons que c'est le tour de l'adversaire
     
     // Main game loop
     while (gameRunning) {
@@ -122,12 +86,66 @@ int main() {
         printf("\n===== TOUR N°%d =====\n", gameState.turnCount);
         printf("Wagons restants - Nous: %d, Adversaire: %d\n", 
                gameState.wagonsLeft, gameState.opponentWagonsLeft);
+               
+        // Déterminer à qui c'est le tour
+        if (!ourTurn) {
+            // Essayer de récupérer le coup de l'adversaire
+            returnCode = getMove(&opponentMove, &opponentMoveResult);
+            
+            if (returnCode == ALL_GOOD) {
+                // C'était bien le tour de l'adversaire
+                printf("Opponent made a move of type: %d\n", opponentMove.action);
+                
+                // Update our game state based on opponent's move
+                updateAfterOpponentMove(&gameState, &opponentMove);
+                
+                // Process opponent's move by type for logging
+                switch (opponentMove.action) {
+                    case CLAIM_ROUTE:
+                        printf("Opponent claimed route from %d to %d with color %d\n", 
+                               opponentMove.claimRoute.from, 
+                               opponentMove.claimRoute.to,
+                               opponentMove.claimRoute.color);
+                        break;
+                    case DRAW_CARD:
+                        printf("Opponent drew visible card: %d\n", opponentMove.drawCard);
+                        break;
+                    case DRAW_BLIND_CARD:
+                        printf("Opponent drew a blind card\n");
+                        break;
+                    case DRAW_OBJECTIVES:
+                        printf("Opponent drew objectives\n");
+                        break;
+                    case CHOOSE_OBJECTIVES:
+                        printf("Opponent chose objectives\n");
+                        break;
+                    default:
+                        printf("Unknown move type: %d\n", opponentMove.action);
+                }
+                
+                // Free memory
+                if (opponentMoveResult.opponentMessage) free(opponentMoveResult.opponentMessage);
+                if (opponentMoveResult.message) free(opponentMoveResult.message);
+                
+                // Maintenant c'est notre tour (sauf si l'adversaire rejoue)
+                ourTurn = !opponentMoveResult.replay;
+            } 
+            else if (returnCode == OTHER_ERROR) {
+                // Erreur lors de la récupération du coup de l'adversaire
+                // Cela signifie probablement que c'est à notre tour de jouer
+                printf("Error getting opponent move: seems like it's our turn\n");
+                ourTurn = 1;
+            }
+            else {
+                // Autre erreur - peut-être fin de partie
+                printf("Error getting opponent move: 0x%x\n", returnCode);
+                gameRunning = 0;
+                continue;
+            }
+        }
         
-        // Try to get opponent's move
-        returnCode = getMove(&opponentMove, &opponentMoveResult);
-        
-        // Handle our turn
-        if (returnCode == OTHER_ERROR) {
+        // Notre tour de jouer
+        if (ourTurn) {
             printf("It's our turn to play\n");
             
             // Choix du mode de jeu
@@ -175,82 +193,9 @@ int main() {
                 printf("LAST TURN: We have <= 2 wagons left\n");
                 gameState.lastTurn = 1;
             }
-        }
-        // Handle opponent's move
-        else if (returnCode == ALL_GOOD) {
-            printf("Opponent made a move of type: %d\n", opponentMove.action);
             
-            // Update our game state based on opponent's move
-            updateAfterOpponentMove(&gameState, &opponentMove);
-            
-            // Process opponent's move by type for logging
-            switch (opponentMove.action) {
-                case CLAIM_ROUTE:
-                    printf("Opponent claimed route from %d to %d with color %d\n", 
-                           opponentMove.claimRoute.from, 
-                           opponentMove.claimRoute.to,
-                           opponentMove.claimRoute.color);
-                    break;
-                case DRAW_CARD:
-                    printf("Opponent drew visible card: %d\n", opponentMove.drawCard);
-                    break;
-                case DRAW_BLIND_CARD:
-                    printf("Opponent drew a blind card\n");
-                    break;
-                case DRAW_OBJECTIVES:
-                    printf("Opponent drew objectives\n");
-                    break;
-                case CHOOSE_OBJECTIVES:
-                    printf("Opponent chose objectives\n");
-                    break;
-                default:
-                    printf("Unknown move type: %d\n", opponentMove.action);
-            }
-            
-            // Free memory
-            cleanupMoveResult(&opponentMoveResult);
-        }
-        // Handle game end
-        else if (returnCode == SERVER_ERROR || returnCode == PARAM_ERROR) {
-            printf("Game has ended with code: 0x%x\n", returnCode);
-            
-            // Vérifier si c'est une fin normale (annonce d'un gagnant)
-            if (opponentMoveResult.message && strstr(opponentMoveResult.message, "winner")) {
-                char winner[100] = "unknown";
-                sscanf(opponentMoveResult.message, "{\"state\": 1, \"winner\": \"%99[^\"]\"}", winner);
-                printf("GAME OVER - Partie terminée normalement après %d tours\n", gameState.turnCount);
-                printf("Le gagnant est: %s\n", winner);
-            }
-            
-            printf("Final board state:\n");
-            printBoard();
-            printf("Final game state:\n");
-            printGameState(&gameState);
-            
-            // Calculate final score
-            int finalScore = calculateScore(&gameState);
-            printf("Final score: %d\n", finalScore);
-            printf("Partie terminée en %d tours.\n", gameState.turnCount);
-            
-            // Free memory
-            cleanupMoveResult(&opponentMoveResult);
-            
-            gameRunning = 0;
-        }
-        // Handle unexpected errors
-        else {
-            printf("Unexpected error: 0x%x\n", returnCode);
-            
-            // Check if we received any error message from the server
-            if (opponentMoveResult.message) {
-                printf("Server message: %s\n", opponentMoveResult.message);
-                cleanupMoveResult(&opponentMoveResult);
-            }
-            
-            // If it's a serious error, exit the game
-            if (returnCode != OTHER_ERROR) {
-                gameRunning = 0;
-            }
+            // C'est maintenant le tour de l'adversaire
+            ourTurn = 0;
         }
         
         // Print current game state for debugging

@@ -35,7 +35,6 @@ void cleanupMoveResult(MoveResult *moveResult) {
     moveResult->opponentMessage = NULL;
     moveResult->message = NULL;
 }
-
 // Initialise le joueur
 void initPlayer(GameState* state, StrategyType strategy, GameData* gameData) {
     // Vérifier les paramètres
