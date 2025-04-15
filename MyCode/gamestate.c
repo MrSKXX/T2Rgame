@@ -74,18 +74,29 @@ void initGameState(GameState* state, GameData* gameData) {
 
 // Met à jour l'état du jeu après avoir reçu une carte
 void addCardToHand(GameState* state, CardColor card) {
-    if (state->nbCards < MAX_CARDS) {
-        state->cards[state->nbCards++] = card;
-        state->nbCardsByColor[card]++;
-        printf("Added card to hand: ");
-        const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                                  "Orange", "Black", "Red", "Green", "Locomotive"};
-        printf("%s\n", cardNames[card]);
-    } else {
-        printf("WARNING: Cannot add more cards, hand is full!\n");
+    if (!state) {
+        printf("ERROR: Null state in addCardToHand\n");
+        return;
     }
+    
+    // Vérifier si on peut ajouter une carte (limite de 50)
+    if (state->nbCards >= 50) {
+        printf("WARNING: Cannot add more cards, hand is full (50 max)!\n");
+        return;
+    }
+    
+    // Ajouter la carte
+    state->cards[state->nbCards++] = card;
+    state->nbCardsByColor[card]++;
+    
+    printf("Added card to hand: ");
+    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
+                              "Orange", "Black", "Red", "Green", "Locomotive"};
+    printf("%s\n", cardNames[card]);
+    
+    // Afficher un récapitulatif des cartes en main
+    printf("Current hand: %d cards total\n", state->nbCards);
 }
-
 
 
 
@@ -130,66 +141,34 @@ void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLo
                                                       "Orange", "Black", "Red", "Green", "Locomotive"}[color] : "Unknown",
            nbLocomotives);
     
-    int cardsToRemove = length;
-    int locomotivesRemoved = 0;
-    int colorCardsRemoved = 0;
+    // Mettre à jour directement les compteurs
+    state->nbCardsByColor[color] -= (length - nbLocomotives);
+    state->nbCardsByColor[LOCOMOTIVE] -= nbLocomotives;
+    state->nbCards -= length;
     
-    // D'abord, on enlève les locomotives demandées
-    for (int i = 0; i < state->nbCards && locomotivesRemoved < nbLocomotives; i++) {
-        if (state->cards[i] == LOCOMOTIVE) {
-            // Marque cette carte comme enlevée (sera supprimée plus tard)
-            state->cards[i] = (CardColor)-1;
-            locomotivesRemoved++;
-            cardsToRemove--;
-        }
+    // Vérification de sécurité pour éviter les valeurs négatives
+    if (state->nbCardsByColor[color] < 0) {
+        printf("WARNING: Negative card count corrected for color %d\n", color);
+        state->nbCardsByColor[color] = 0;
+    }
+    if (state->nbCardsByColor[LOCOMOTIVE] < 0) {
+        printf("WARNING: Negative locomotive count corrected\n");
+        state->nbCardsByColor[LOCOMOTIVE] = 0;
+    }
+    if (state->nbCards < 0) {
+        printf("WARNING: Negative total card count corrected\n");
+        state->nbCards = 0;
     }
     
-    // Ensuite, on enlève les cartes de la couleur demandée
-    for (int i = 0; i < state->nbCards && colorCardsRemoved < cardsToRemove; i++) {
-        if (state->cards[i] == color) {
-            // Marque cette carte comme enlevée
-            state->cards[i] = (CardColor)-1;
-            colorCardsRemoved++;
-        }
-    }
-    
-    // Si on a utilisé des locomotives pour la couleur (pas juste celles déclarées),
-    // on les enlève aussi
-    if (colorCardsRemoved < cardsToRemove) {
-        int extraLocomotives = cardsToRemove - colorCardsRemoved;
-        for (int i = 0; i < state->nbCards && extraLocomotives > 0; i++) {
-            if (state->cards[i] == LOCOMOTIVE) {
-                // Marque cette carte comme enlevée
-                state->cards[i] = (CardColor)-1;
-                extraLocomotives--;
-                locomotivesRemoved++;
-            }
-        }
-    }
-    
-    // Compacte le tableau de cartes
-    int newIndex = 0;
-    for (int i = 0; i < state->nbCards; i++) {
-        if (state->cards[i] != (CardColor)-1) {
-            state->cards[newIndex++] = state->cards[i];
-        }
-    }
-    
-    // Met à jour les compteurs
-    state->nbCardsByColor[LOCOMOTIVE] -= locomotivesRemoved;
-    state->nbCardsByColor[color] -= colorCardsRemoved;
-    state->nbCards = newIndex;
-    
-    // Met à jour le nombre de wagons
+    // Mettre à jour le nombre de wagons
     state->wagonsLeft -= length;
     
     printf("Removed %d cards (%d %s and %d locomotives) for claiming route\n", 
-           colorCardsRemoved + locomotivesRemoved, colorCardsRemoved, 
+           length, length - nbLocomotives, 
            (color < 10 && color >= 0) ? (const char*[]){"None", "Purple", "White", "Blue", "Yellow", 
                                                       "Orange", "Black", "Red", "Green", "Locomotive"}[color] : "Unknown",
-           locomotivesRemoved);
+           nbLocomotives);
 }
-
 
 
 /*

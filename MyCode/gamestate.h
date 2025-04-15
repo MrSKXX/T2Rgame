@@ -9,7 +9,7 @@
 
 #define MAX_CARDS 100       // Nombre maximum de cartes dans la main du joueur
 #define MAX_OBJECTIVES 15   // Nombre maximum d'objectifs que le joueur peut avoir
-#define MAX_ROUTES 100      // Nombre maximum de routes sur le plateau
+#define MAX_ROUTES 150      // Nombre maximum de routes sur le plateau
 #define MAX_CITIES 50       // Nombre maximum de villes
 
 // Structure pour représenter une route

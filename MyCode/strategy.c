@@ -68,40 +68,53 @@ int decideNextMove(GameState* state, StrategyType strategy, MoveData* moveData) 
     
     printf("Found %d possible routes to claim\n", numPossibleRoutes);
     
-    // Si nous pouvons prendre des routes, les trier par utilité
+    // Si nous pouvons prendre des routes
     if (numPossibleRoutes > 0) {
         // Trier les routes par leur utilité pour compléter les objectifs
         sortRoutesByUtility(state, possibleRoutes, possibleColors, possibleLocomotives, numPossibleRoutes);
         
-        // Calculer combien d'objectifs sont complétés et non complétés
-        int completedObjectives = 0;
-        int totalObjectives = state->nbObjectives;
+        // Vérifier si nous avons des objectifs en cours
+        if (state->nbObjectives == 0) {
+            // Si nous n'avons pas d'objectifs, en piocher d'abord
+            moveData->action = DRAW_OBJECTIVES;
+            printf("Strategy decided: draw new objectives (we have none)\n");
+            return 1;
+        }
         
+        // Nous allons presque toujours prendre une route si possible
+        bool shouldClaimRoute = true;
+        
+        // Sauf dans certains cas spécifiques :
+        
+        // 1. Si nous sommes au tout début et avons très peu de cartes, piocher d'abord
+        if (state->turnCount < 3 && state->nbCards < 6) {
+            // Vérifier si la meilleure route a une utilité élevée
+            int bestRouteUtility = evaluateRouteUtility(state, possibleRoutes[0]);
+            
+            // Si l'utilité est faible, mieux vaut piocher
+            if (bestRouteUtility < 5) {
+                shouldClaimRoute = false;
+                printf("Early game - few cards and low utility route - drawing cards first\n");
+            }
+        }
+        
+        // 2. Si nous avons beaucoup d'objectifs non complétés et peu de cartes, piocher pour avoir plus d'options
+        int completedObjectives = 0;
         for (int i = 0; i < state->nbObjectives; i++) {
             if (isObjectiveCompleted(state, state->objectives[i])) {
                 completedObjectives++;
             }
         }
         
-        // Stratégie pour décider quand prendre une route vs piocher des cartes
-        // 1. Si nous avons beaucoup de cartes (plus de 6) ou c'est la fin de partie -> prendre une route
-        // 2. Si nous avons des objectifs non complétés et une route utile -> prendre une route
-        // 3. Si nous avons peu de cartes et peu d'objectifs complétés -> peut-être piocher
+        int incompleteObjectives = state->nbObjectives - completedObjectives;
         
-        // Facteurs qui favorisent la prise de route
-        int shouldClaimRoute = 0;
-        
-        // Fin de partie ou beaucoup de cartes
-        if (state->nbCards > 6 || state->lastTurn || state->wagonsLeft < 20) {
-            shouldClaimRoute = 1;
+        // Si beaucoup d'objectifs incomplets et peu de cartes, privilégier la pioche
+        if (incompleteObjectives > 2 && state->nbCards < 4) {
+            shouldClaimRoute = false;
+            printf("Many incomplete objectives (%d) and few cards - drawing first\n", incompleteObjectives);
         }
         
-        // Objectifs non complétés avec routes utiles
-        if (completedObjectives < totalObjectives && evaluateRouteUtility(state, possibleRoutes[0]) > 10) {
-            shouldClaimRoute = 1;
-        }
-        
-        // Si on décide de prendre une route
+        // Si nous décidons de prendre une route
         if (shouldClaimRoute) {
             // Prendre la route la plus utile (première après le tri)
             int routeIndex = possibleRoutes[0];
@@ -110,38 +123,44 @@ int decideNextMove(GameState* state, StrategyType strategy, MoveData* moveData) 
             CardColor color = possibleColors[0];
             int nbLocomotives = possibleLocomotives[0];
             
-            // Vérification supplémentaire que nous avons bien les cartes nécessaires
-            int requiredCards = state->routes[routeIndex].length;
-            int availableColorCards = state->nbCardsByColor[color];
-            int availableLocomotives = state->nbCardsByColor[LOCOMOTIVE];
+            // Vérification que la couleur est valide pour cette route
+            CardColor routeColor = state->routes[routeIndex].color;
+            CardColor routeSecondColor = state->routes[routeIndex].secondColor;
             
-            printf("Best route: from %d to %d, utility: %d\n", from, to, 
-                   evaluateRouteUtility(state, routeIndex));
-            printf("Route requires %d cards, we have %d %s cards and %d locomotives\n",
-                   requiredCards, availableColorCards,
-                   (color < 10 && color >= 0) ? (const char*[]){"None", "Purple", "White", "Blue", "Yellow", 
-                                                              "Orange", "Black", "Red", "Green", "Locomotive"}[color] : "Unknown", 
-                   availableLocomotives);
-            
-            if (availableColorCards + availableLocomotives >= requiredCards) {
-                // Prépare l'action
-                moveData->action = CLAIM_ROUTE;
-                moveData->claimRoute.from = from;
-                moveData->claimRoute.to = to;
-                moveData->claimRoute.color = color;
-                moveData->claimRoute.nbLocomotives = nbLocomotives;
-                
-                printf("Strategy decided: claim route from %d to %d with color %d and %d locomotives\n",
-                      moveData->claimRoute.from, moveData->claimRoute.to, 
-                      moveData->claimRoute.color, moveData->claimRoute.nbLocomotives);
-                
-                return 1;
-            } else {
-                printf("Warning: findPossibleRoutes returned a route we can't actually claim. This shouldn't happen!\n");
+            // Pour les routes grises (LOCOMOTIVE), toute couleur est valide
+            // Pour les routes colorées, vérifier que la couleur choisie correspond
+            if (routeColor != LOCOMOTIVE && routeSecondColor != LOCOMOTIVE && 
+                color != routeColor && color != routeSecondColor && color != LOCOMOTIVE) {
+                printf("WARNING: Color mismatch for route %d. Expected %d or %d, got %d\n", 
+                      routeIndex, routeColor, routeSecondColor, color);
+                // Corriger la couleur si nécessaire
+                if (state->nbCardsByColor[routeColor] >= state->routes[routeIndex].length - nbLocomotives) {
+                    color = routeColor;
+                } else if (routeSecondColor != NONE && 
+                         state->nbCardsByColor[routeSecondColor] >= state->routes[routeIndex].length - nbLocomotives) {
+                    color = routeSecondColor;
+                }
             }
-        } else {
-            printf("We could claim a route, but choosing to draw cards first for better options\n");
+            
+            // Prépare l'action
+            moveData->action = CLAIM_ROUTE;
+            moveData->claimRoute.from = from;
+            moveData->claimRoute.to = to;
+            moveData->claimRoute.color = color;
+            moveData->claimRoute.nbLocomotives = nbLocomotives;
+            
+            printf("Strategy decided: claim route from %d to %d with color %d and %d locomotives\n",
+                  moveData->claimRoute.from, moveData->claimRoute.to, 
+                  moveData->claimRoute.color, moveData->claimRoute.nbLocomotives);
+            
+            return 1;
         }
+    }
+    // Si nous n'avons pas assez d'objectifs, en piocher
+    if (state->nbObjectives < 3 && !state->lastTurn) {
+        moveData->action = DRAW_OBJECTIVES;
+        printf("Strategy decided: draw new objectives (we have only %d)\n", state->nbObjectives);
+        return 1;
     }
     
     // Analyser les couleurs nécessaires pour nos objectifs
@@ -181,10 +200,8 @@ int decideNextMove(GameState* state, StrategyType strategy, MoveData* moveData) 
                                     colorNeeds[routeSecondColor]++;
                                 }
                                 
-                                // Si c'est une route grise, toutes les couleurs sont possibles
+                                // Si c'est une route grise, les locomotives sont utiles
                                 if (routeColor == LOCOMOTIVE) {
-                                    // Pas de préférence de couleur spécifique
-                                    // Les locomotives sont toujours utiles
                                     colorNeeds[LOCOMOTIVE]++;
                                 }
                             }
@@ -193,23 +210,6 @@ int decideNextMove(GameState* state, StrategyType strategy, MoveData* moveData) 
                 }
             }
         }
-    }
-    
-    // Afficher les besoins en couleurs pour le débogage
-    printf("Color needs for remaining objectives:\n");
-    for (int i = 1; i < 10; i++) {
-        if (colorNeeds[i] > 0) {
-            printf("  %s: %d\n", (i < 10) ? (const char*[]){"None", "Purple", "White", "Blue", "Yellow", 
-                                                           "Orange", "Black", "Red", "Green", "Locomotive"}[i] : "Unknown", 
-                   colorNeeds[i]);
-        }
-    }
-    
-    // Si nous n'avons pas assez d'objectifs, en piocher
-    if (state->nbObjectives < 3 && !state->lastTurn) {
-        moveData->action = DRAW_OBJECTIVES;
-        printf("Strategy decided: draw new objectives (we have only %d)\n", state->nbObjectives);
-        return 1;
     }
     
     // Piocher des cartes en fonction des besoins pour les objectifs
@@ -668,46 +668,53 @@ int evaluateRouteUtility(GameState* state, int routeIndex) {
 
 // Trie les routes possibles par ordre d'utilité décroissante
 void sortRoutesByUtility(GameState* state, int* possibleRoutes, CardColor* possibleColors, 
-                         int* possibleLocomotives, int numPossibleRoutes) {
-    // Calculer les scores d'utilité pour chaque route
-    int utilityScores[MAX_ROUTES];
-    
-    for (int i = 0; i < numPossibleRoutes; i++) {
-        utilityScores[i] = evaluateRouteUtility(state, possibleRoutes[i]);
-    }
-    
-    // Tri à bulles simple (pour un petit nombre de routes)
-    for (int i = 0; i < numPossibleRoutes - 1; i++) {
-        for (int j = 0; j < numPossibleRoutes - i - 1; j++) {
-            if (utilityScores[j] < utilityScores[j+1]) {
-                // Échanger les routes
-                int tempRoute = possibleRoutes[j];
-                possibleRoutes[j] = possibleRoutes[j+1];
-                possibleRoutes[j+1] = tempRoute;
-                
-                // Échanger les couleurs
-                CardColor tempColor = possibleColors[j];
-                possibleColors[j] = possibleColors[j+1];
-                possibleColors[j+1] = tempColor;
-                
-                // Échanger les nombres de locomotives
-                int tempLoco = possibleLocomotives[j];
-                possibleLocomotives[j] = possibleLocomotives[j+1];
-                possibleLocomotives[j+1] = tempLoco;
-                
-                // Échanger les scores d'utilité
-                int tempScore = utilityScores[j];
-                utilityScores[j] = utilityScores[j+1];
-                utilityScores[j+1] = tempScore;
-            }
-        }
-    }
-    
-    // Afficher les routes triées par utilité pour le débogage
-    printf("Routes sorted by utility:\n");
-    for (int i = 0; i < numPossibleRoutes; i++) {
-        int routeIndex = possibleRoutes[i];
-        printf("  %d. From %d to %d, utility: %d\n", 
-               i+1, state->routes[routeIndex].from, state->routes[routeIndex].to, utilityScores[i]);
-    }
+    int* possibleLocomotives, int numPossibleRoutes) {
+// Vérification pour éviter un dépassement de mémoire
+if (numPossibleRoutes > MAX_ROUTES) {
+printf("WARNING: Too many possible routes (%d), limiting to %d\n", 
+numPossibleRoutes, MAX_ROUTES);
+numPossibleRoutes = MAX_ROUTES;
+}
+
+// Calculer les scores d'utilité pour chaque route
+int utilityScores[MAX_ROUTES];
+
+for (int i = 0; i < numPossibleRoutes; i++) {
+utilityScores[i] = evaluateRouteUtility(state, possibleRoutes[i]);
+}
+
+// Tri à bulles simple (pour un petit nombre de routes)
+for (int i = 0; i < numPossibleRoutes - 1; i++) {
+for (int j = 0; j < numPossibleRoutes - i - 1; j++) {
+if (utilityScores[j] < utilityScores[j+1]) {
+// Échanger les routes
+int tempRoute = possibleRoutes[j];
+possibleRoutes[j] = possibleRoutes[j+1];
+possibleRoutes[j+1] = tempRoute;
+
+// Échanger les couleurs
+CardColor tempColor = possibleColors[j];
+possibleColors[j] = possibleColors[j+1];
+possibleColors[j+1] = tempColor;
+
+// Échanger les nombres de locomotives
+int tempLoco = possibleLocomotives[j];
+possibleLocomotives[j] = possibleLocomotives[j+1];
+possibleLocomotives[j+1] = tempLoco;
+
+// Échanger les scores d'utilité
+int tempScore = utilityScores[j];
+utilityScores[j] = utilityScores[j+1];
+utilityScores[j+1] = tempScore;
+}
+}
+}
+
+// Afficher les routes triées par utilité pour le débogage
+printf("Routes sorted by utility:\n");
+for (int i = 0; i < numPossibleRoutes; i++) {
+int routeIndex = possibleRoutes[i];
+printf("  %d. From %d to %d, utility: %d\n", 
+i+1, state->routes[routeIndex].from, state->routes[routeIndex].to, utilityScores[i]);
+}
 }

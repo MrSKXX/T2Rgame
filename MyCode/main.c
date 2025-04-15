@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>  // Pour sleep()
+#include <stdbool.h>
 #include "../tickettorideapi/ticketToRide.h"
 #include "../tickettorideapi/clientAPI.h"
 #include "gamestate.h"
@@ -13,212 +14,278 @@
 // Définition du mode de jeu (0 = IA, 1 = manuel)
 #define MANUAL_MODE 0
 
+// Vérifie si le jeu est terminé en analysant les messages d'erreur
+bool isGameOver(char* message) {
+    if (!message) return false;
+    return (strstr(message, "winner") != NULL || 
+            strstr(message, "Total score") != NULL || 
+            strstr(message, "GAME OVER") != NULL);
+}
+
 int main() {
     const char* serverAddress = "82.29.170.160";
     unsigned int serverPort = 15001;
-    const char* playerName = "Georges2222"; 
+    const char* playerName = "Georges"; 
     
-    printf("Ticket to Ride AI Player - %s\n", playerName);
-    printf("Attempting to connect to server at %s:%d\n", serverAddress, serverPort);
+    printf("=== Ticket to Ride AI Player - %s ===\n", playerName);
+    printf("Connecting to server at %s:%d\n", serverAddress, serverPort);
     
-    // Connect to the server
+    // Connexion au serveur
     ResultCode result = connectToCGS(serverAddress, serverPort, playerName);
     if (result != ALL_GOOD) {
         printf("Failed to connect to server. Error code: 0x%x\n", result);
         return 1;
     }
-    printf("Successfully connected to server!\n");
-    
-    // Configure game settings
-    const char* gameSettings = "TRAINING NICE_BOT"; // Par exemple, jouer contre NICE_BOT
-    
-    // Prepare to receive game data
+    printf("Successfully connected to server.\n");
+
+    const char* gameSettings = "TRAINING NICE_BOT";
     GameData gameData;
-    
-    // Send game settings and get game data
+
+    // Envoi des paramètres de jeu
     result = sendGameSettings(gameSettings, &gameData);
     if (result != ALL_GOOD) {
         printf("Failed to send game settings. Error code: 0x%x\n", result);
         return 1;
     }
+
+    printf("Game started: %s, Seed: %d\n", gameData.gameName, gameData.gameSeed);
+    printf("Starter: %d\n", gameData.starter);
     
-    printf("Successfully started game: %s\n", gameData.gameName);
-    printf("Game seed: %d\n", gameData.gameSeed);
-    printf("Starter: %d (1 = you, 2 = opponent)\n", gameData.starter);
-    
-    // Print initial board state
-    printBoard();
-    
-    // Initialiser notre état de jeu et stratégie
+    // Initialiser notre état de jeu
     GameState gameState;
     StrategyType strategy = STRATEGY_BASIC;
     
     initPlayer(&gameState, strategy, &gameData);
     
-    // Main game variables
-    ResultCode returnCode;
-    MoveData opponentMove;
-    MoveResult opponentMoveResult;
-    int gameRunning = 1;
-    int firstMove = 1;
-    int ourTurn = 0; // Par défaut, supposons que c'est le tour de l'adversaire
+    // Afficher l'état initial
+    printBoard();
+    printGameState(&gameState);
     
-    // Main game loop
+    // Variables pour le jeu
+    int turnCounter = 0;
+    bool gameRunning = true;
+    bool firstTurn = true;
+    
+    // D'après les tests, il semble que:
+    // - Si starter == 0, c'est à nous de commencer
+    // - Si starter == 1, c'est à l'adversaire de commencer
+    // Nous initialisons ourTurn en conséquence:
+    bool ourTurn = (gameData.starter != 1);
+    
+    printf("Nous %s en premier\n", ourTurn ? "jouons" : "ne jouons pas");
+    
+    // Boucle principale du jeu
     while (gameRunning) {
-        // Print current board state
-        printBoard();
+        turnCounter++;
+        printf("\n\n=== TOUR %d ===\n", turnCounter);
+        printf("C'est %s tour\n", ourTurn ? "notre" : "le tour de l'adversaire");
         
-        // Get board state to update our visible cards
+        // Vérification des conditions de fin de partie
+        if (gameState.opponentWagonsLeft <= 0) {
+            printf("L'adversaire n'a plus de wagons. C'est le dernier tour!\n");
+            gameState.lastTurn = 1;
+        }
+        
+        if (gameState.wagonsLeft <= 0) {
+            printf("Nous n'avons plus de wagons. C'est le dernier tour!\n");
+            gameState.lastTurn = 1;
+        }
+        
+        // Mettre à jour l'affichage du plateau
+        ResultCode boardResult = printBoard();
+        if (boardResult != ALL_GOOD) {
+            if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
+                printf("Fin de partie détectée lors de l'affichage du plateau.\n");
+                gameRunning = false;
+                break;
+            }
+        }
+        
+        // Mettre à jour les cartes visibles
         BoardState boardState;
-        returnCode = getBoardState(&boardState);
-        if (returnCode != ALL_GOOD) {
-            printf("Error getting board state: 0x%x\n", returnCode);
+        ResultCode stateResult = getBoardState(&boardState);
+        if (stateResult == ALL_GOOD) {
+            for (int i = 0; i < 5; i++) {
+                gameState.visibleCards[i] = boardState.card[i];
+            }
+        } else if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
+            printf("Fin de partie détectée lors de la récupération des cartes visibles.\n");
+            gameRunning = false;
             break;
         }
         
-        // Update our visible cards
-        for (int i = 0; i < 5; i++) {
-            gameState.visibleCards[i] = boardState.card[i];
-        }
+        printf("Wagons - Nous: %d, Adversaire: %d\n", gameState.wagonsLeft, gameState.opponentWagonsLeft);
         
-        // Incrémentation et affichage du compteur de tours
-        gameState.turnCount++;
-        printf("\n===== TOUR N°%d =====\n", gameState.turnCount);
-        printf("Wagons restants - Nous: %d, Adversaire: %d\n", 
-               gameState.wagonsLeft, gameState.opponentWagonsLeft);
-               
-        // Déterminer à qui c'est le tour
-        if (!ourTurn) {
-            // Essayer de récupérer le coup de l'adversaire
-            returnCode = getMove(&opponentMove, &opponentMoveResult);
-            
-            if (returnCode == ALL_GOOD) {
-                // C'était bien le tour de l'adversaire
-                printf("Opponent made a move of type: %d\n", opponentMove.action);
-                
-                // Update our game state based on opponent's move
-                updateAfterOpponentMove(&gameState, &opponentMove);
-                
-                // Process opponent's move by type for logging
-                switch (opponentMove.action) {
-                    case CLAIM_ROUTE:
-                        printf("Opponent claimed route from %d to %d with color %d\n", 
-                               opponentMove.claimRoute.from, 
-                               opponentMove.claimRoute.to,
-                               opponentMove.claimRoute.color);
-                        break;
-                    case DRAW_CARD:
-                        printf("Opponent drew visible card: %d\n", opponentMove.drawCard);
-                        break;
-                    case DRAW_BLIND_CARD:
-                        printf("Opponent drew a blind card\n");
-                        break;
-                    case DRAW_OBJECTIVES:
-                        printf("Opponent drew objectives\n");
-                        break;
-                    case CHOOSE_OBJECTIVES:
-                        printf("Opponent chose objectives\n");
-                        break;
-                    default:
-                        printf("Unknown move type: %d\n", opponentMove.action);
-                }
-                
-                // Free memory
-                if (opponentMoveResult.opponentMessage) free(opponentMoveResult.opponentMessage);
-                if (opponentMoveResult.message) free(opponentMoveResult.message);
-                
-                // Maintenant c'est notre tour (sauf si l'adversaire rejoue)
-                ourTurn = !opponentMoveResult.replay;
-            } 
-            else if (returnCode == OTHER_ERROR) {
-                // Erreur lors de la récupération du coup de l'adversaire
-                // Cela signifie probablement que c'est à notre tour de jouer
-                printf("Error getting opponent move: seems like it's our turn\n");
-                ourTurn = 1;
-            }
-            else {
-                // Autre erreur - peut-être fin de partie
-                printf("Error getting opponent move: 0x%x\n", returnCode);
-                gameRunning = 0;
-                continue;
-            }
-        }
-        
-        // Notre tour de jouer
         if (ourTurn) {
-            printf("It's our turn to play\n");
+            // Notre tour de jouer
+            printf("\n--- Playing our turn ---\n");
             
-            // Choix du mode de jeu
+            ResultCode playCode;
+            MoveResult moveResult = {0};
+            
+            // Jouer selon le mode (manuel ou IA)
             if (MANUAL_MODE) {
-                // Mode manuel
-                if (firstMove) {
-                    returnCode = playManualFirstTurn(&gameState);
-                    firstMove = 0;
+                if (firstTurn) {
+                    playCode = playManualFirstTurn(&gameState);
                 } else {
-                    returnCode = playManualTurn(&gameState);
-                }
-                
-                if (returnCode != ALL_GOOD) {
-                    // Vérifier si c'est un message de fin de partie
-                    printf("Error in manual turn: 0x%x\n", returnCode);
-                    gameRunning = 0;
-                    continue;
+                    playCode = playManualTurn(&gameState);
                 }
             } else {
-                // Mode IA automatique (code existant)
-                if (firstMove) {
-                    returnCode = playFirstTurn(&gameState);
-                    
-                    if (returnCode != ALL_GOOD) {
-                        printf("Error in first turn: 0x%x\n", returnCode);
-                        gameRunning = 0;
-                        continue;
+                if (firstTurn) {
+                    playCode = playFirstTurn(&gameState);
+                    if (playCode == ALL_GOOD) {
+                        firstTurn = false;
                     }
-                    
-                    firstMove = 0;
                 } else {
-                    // Regular turn
-                    returnCode = playTurn(&gameState, strategy);
-                    
-                    if (returnCode != ALL_GOOD) {
-                        printf("Error in turn: 0x%x\n", returnCode);
-                        gameRunning = 0;
-                        continue;
-                    }
+                    playCode = playTurn(&gameState, strategy);
                 }
             }
             
-            // Check if it's the last turn
-            if (isLastTurn(&gameState)) {
-                printf("LAST TURN: We have <= 2 wagons left\n");
-                gameState.lastTurn = 1;
+            if (playCode == ALL_GOOD) {
+                printf("Successfully played our turn\n");
+                
+                // Vérifier si c'est le dernier tour
+                if (isLastTurn(&gameState)) {
+                    printf("LAST TURN: We have <= 2 wagons left\n");
+                    gameState.lastTurn = 1;
+                }
+                
+                // Si on ne rejoue pas, c'est au tour de l'adversaire
+                if (moveResult.replay) {
+                    printf("We get to play again!\n");
+                } else {
+                    ourTurn = false;
+                }
+            } 
+            else if (playCode == PARAM_ERROR || playCode == OTHER_ERROR) {
+                // Erreur - Si fin de partie
+                if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
+                    printf("Fin de partie détectée. Dernière erreur: 0x%x\n", playCode);
+                    gameRunning = false;
+                    break;
+                }
+                // Peut-être que c'est le tour de l'adversaire?
+                printf("Error playing turn: 0x%x - Trying opponent's turn instead\n", playCode);
+                ourTurn = false;
+                // Continuer vers le début de la boucle pour essayer l'autre tour
+                continue;
             }
+            else if (playCode == SERVER_ERROR) {
+                // Vérifier si c'est la fin de partie
+                if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
+                    printf("Fin de partie détectée.\n");
+                    gameRunning = false;
+                    break;
+                }
+                // Autre erreur serveur
+                printf("Server error - Game might be over\n");
+                gameRunning = false;
+                continue;
+            }
+            else {
+                // Autre erreur
+                printf("Unknown error playing turn: 0x%x\n", playCode);
+                sleep(2);  // Pause plus longue
+            }
+        } 
+        else {
+            // C'est le tour de l'adversaire
+            printf("\n--- Waiting for opponent's move ---\n");
             
-            // C'est maintenant le tour de l'adversaire
-            ourTurn = 0;
+            MoveData opponentMove;
+            MoveResult opponentMoveResult;
+            ResultCode moveCode = getMove(&opponentMove, &opponentMoveResult);
+            
+            if (moveCode == ALL_GOOD) {
+                // Vérifier si c'est la fin de partie
+                if (opponentMoveResult.message && isGameOver(opponentMoveResult.message)) {
+                    printf("Fin de partie détectée : \n%s\n", opponentMoveResult.message);
+                    if (opponentMoveResult.opponentMessage) {
+                        printf("Message de l'adversaire : %s\n", opponentMoveResult.opponentMessage);
+                    }
+                    gameRunning = false;
+                    // Libérer la mémoire
+                    if (opponentMoveResult.opponentMessage) free(opponentMoveResult.opponentMessage);
+                    if (opponentMoveResult.message) free(opponentMoveResult.message);
+                    break;
+                }
+                
+                // L'adversaire a bien joué
+                printf("Opponent made a move of type: %d\n", opponentMove.action);
+                updateAfterOpponentMove(&gameState, &opponentMove);
+                
+                // Si l'adversaire ne rejoue pas, c'est notre tour
+                if (!opponentMoveResult.replay) {
+                    ourTurn = true;
+                    printf("Now it's our turn\n");
+                } else {
+                    printf("Opponent continues playing...\n");
+                }
+                
+                // Nettoyage de la mémoire
+                if (opponentMoveResult.opponentMessage) free(opponentMoveResult.opponentMessage);
+                if (opponentMoveResult.message) free(opponentMoveResult.message);
+            }
+            else if (moveCode == PARAM_ERROR || moveCode == OTHER_ERROR) {
+                // Erreur - Si fin de partie
+                if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
+                    printf("Fin de partie détectée. Dernière erreur: 0x%x\n", moveCode);
+                    gameRunning = false;
+                    break;
+                }
+                // Peut-être que c'est notre tour?
+                printf("Error getting opponent move: 0x%x - Trying our turn instead\n", moveCode);
+                ourTurn = true;
+                // Continuer vers le début de la boucle pour essayer l'autre tour
+                continue;
+            }
+            else if (moveCode == SERVER_ERROR) {
+                // Vérifier si c'est la fin de partie
+                if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
+                    printf("Fin de partie détectée.\n");
+                    gameRunning = false;
+                    break;
+                }
+                // Autre erreur serveur
+                printf("Server error - Game might be over\n");
+                gameRunning = false;
+                continue;
+            }
+            else {
+                // Autre erreur
+                printf("Unknown error getting opponent move: 0x%x\n", moveCode);
+                sleep(2);  // Pause plus longue
+            }
         }
         
-        // Print current game state for debugging
+        // Afficher l'état mis à jour
         if (MANUAL_MODE) {
             printManualGameState(&gameState);
         } else {
             printGameState(&gameState);
         }
         
-        // Calculate current score
+        // Calculer le score actuel
         int currentScore = calculateScore(&gameState);
         printf("Current score: %d\n", currentScore);
         
-        // Small pause to avoid server overload
+        // Vérifier si le dernier tour est terminé
+        if (gameState.lastTurn && !ourTurn) {
+            printf("Dernier tour terminé. Fin de la partie.\n");
+            gameRunning = false;
+            break;
+        }
+        
+        // Attendre un peu avant le prochain tour
         sleep(1);
     }
     
-    // Clean up allocated memory
+    // Nettoyage final
     if (gameData.gameName) free(gameData.gameName);
     if (gameData.trackData) free(gameData.trackData);
     
-    // Quit the game
     quitGame();
+    printf("Game terminated.\n");
     
     return 0;
 }
