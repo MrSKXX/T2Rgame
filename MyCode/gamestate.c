@@ -122,7 +122,10 @@ void addCardToHand(GameState* state, CardColor card) {
 
 
 // Met à jour l'état du jeu après avoir joué des cartes pour prendre une route
+// Extrait montrant la fonction removeCardsForRoute corrigée
 void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLocomotives) {
+    extern void debugPrint(int level, const char* format, ...);  // Déclaration externe
+    
     // Vérification des paramètres
     if (!state || length <= 0) {
         printf("ERROR: Invalid parameters in removeCardsForRoute\n");
@@ -135,10 +138,12 @@ void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLo
         return;
     }
     
+    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
+                              "Orange", "Black", "Red", "Green", "Locomotive"};
+    
     printf("Removing cards for route: %d %s cards and %d locomotives\n", 
            length - nbLocomotives, 
-           (color < 10 && color >= 0) ? (const char*[]){"None", "Purple", "White", "Blue", "Yellow", 
-                                                      "Orange", "Black", "Red", "Green", "Locomotive"}[color] : "Unknown",
+           (color < 10 && color >= 0) ? cardNames[color] : "Unknown",
            nbLocomotives);
     
     // Mettre à jour directement les compteurs
@@ -165,11 +170,9 @@ void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLo
     
     printf("Removed %d cards (%d %s and %d locomotives) for claiming route\n", 
            length, length - nbLocomotives, 
-           (color < 10 && color >= 0) ? (const char*[]){"None", "Purple", "White", "Blue", "Yellow", 
-                                                      "Orange", "Black", "Red", "Green", "Locomotive"}[color] : "Unknown",
+           (color < 10 && color >= 0) ? cardNames[color] : "Unknown",
            nbLocomotives);
 }
-
 
 /*
  * addClaimedRoute

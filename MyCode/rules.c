@@ -24,7 +24,10 @@
  * - Optimisation (nombre de locomotives)
  */
 
- int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLocomotives) {
+ // Extrait montrant la fonction modifiée avec gestion du débogage
+int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLocomotives) {
+    extern void debugPrint(int level, const char* format, ...);  // Déclaration externe
+    
     // Vérifie si l'état est correctement initialisé
     if (!state || !nbLocomotives) {
         printf("ERROR: Invalid parameters in canClaimRoute\n");
@@ -40,7 +43,7 @@
     
     // Vérifie si nous avons assez de wagons
     if (state->wagonsLeft <= 0) {
-        printf("DEBUG: canClaimRoute - Not enough wagons left\n");
+        debugPrint(2, "DEBUG: canClaimRoute - Not enough wagons left");
         return 0;
     }
     
@@ -55,13 +58,13 @@
     }
     
     if (routeIndex == -1) {
-        printf("DEBUG: canClaimRoute - Route from %d to %d not found\n", from, to);
+        debugPrint(2, "DEBUG: canClaimRoute - Route from %d to %d not found", from, to);
         return 0;
     }
     
     // Vérifie si la route est déjà prise
     if (state->routes[routeIndex].owner != 0) {
-        printf("DEBUG: canClaimRoute - Route from %d to %d already owned by %d\n", 
+        debugPrint(2, "DEBUG: canClaimRoute - Route from %d to %d already owned by %d", 
               from, to, state->routes[routeIndex].owner);
         return 0;
     }
@@ -69,7 +72,7 @@
     // Vérifie si nous avons assez de wagons
     int length = state->routes[routeIndex].length;
     if (state->wagonsLeft < length) {
-        printf("DEBUG: canClaimRoute - Not enough wagons (%d needed, %d left)\n", 
+        debugPrint(2, "DEBUG: canClaimRoute - Not enough wagons (%d needed, %d left)", 
               length, state->wagonsLeft);
         return 0;
     }
@@ -85,7 +88,7 @@
     // Pour les routes doubles, vérifier les deux couleurs
     else if (routeSecondColor != NONE) {
         if (color != routeColor && color != routeSecondColor && color != LOCOMOTIVE) {
-            printf("ERROR: Invalid color for route: expected %d or %d, got %d\n",
+            debugPrint(1, "ERROR: Invalid color for route: expected %d or %d, got %d",
                 routeColor, routeSecondColor, color);
             return 0;
         }
@@ -93,7 +96,7 @@
     // Pour les routes simples, vérifier la couleur
     else {
         if (color != routeColor && color != LOCOMOTIVE) {
-            printf("ERROR: Invalid color for route: expected %d, got %d\n",
+            debugPrint(1, "ERROR: Invalid color for route: expected %d, got %d",
                 routeColor, color);
             return 0;
         }
@@ -103,17 +106,17 @@
     int colorCards = state->nbCardsByColor[color];
     int locomotives = state->nbCardsByColor[LOCOMOTIVE];
     
-    printf("DEBUG: canClaimRoute - We have %d %s cards and %d locomotives, need %d cards total\n",
+    debugPrint(2, "DEBUG: canClaimRoute - We have %d %s cards and %d locomotives, need %d cards total",
           colorCards, cardNames[color], locomotives, length);
     
     // Si on utilise des locomotives comme couleur principale
     if (color == LOCOMOTIVE) {
         if (locomotives >= length) {
             *nbLocomotives = length; // Toutes les cartes sont des locomotives
-            printf("DEBUG: canClaimRoute - Can claim with %d locomotives\n", *nbLocomotives);
+            debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d locomotives", *nbLocomotives);
             return 1;
         } else {
-            printf("DEBUG: canClaimRoute - Not enough locomotives\n");
+            debugPrint(2, "DEBUG: canClaimRoute - Not enough locomotives");
             return 0;
         }
     }
@@ -122,17 +125,17 @@
     if (colorCards >= length) {
         // Assez de cartes de la bonne couleur, pas besoin de locomotives
         *nbLocomotives = 0;
-        printf("DEBUG: canClaimRoute - Can claim with %d %s cards, no locomotives needed\n",
+        debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d %s cards, no locomotives needed",
               length, cardNames[color]);
         return 1;
     } else if (colorCards + locomotives >= length) {
         // On peut compléter avec des locomotives
         *nbLocomotives = length - colorCards;
-        printf("DEBUG: canClaimRoute - Can claim with %d %s cards and %d locomotives\n",
+        debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d %s cards and %d locomotives",
               colorCards, cardNames[color], *nbLocomotives);
         return 1;
     } else {
-        printf("DEBUG: canClaimRoute - Not enough cards to claim route\n");
+        debugPrint(2, "DEBUG: canClaimRoute - Not enough cards to claim route");
         return 0;
     }
 }
@@ -157,7 +160,9 @@
  */
 
 
- int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibleColors, int* possibleLocomotives) {
+ // Extrait montrant la fonction findPossibleRoutes modifiée
+int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibleColors, int* possibleLocomotives) {
+    extern void debugPrint(int level, const char* format, ...);  // Déclaration externe
     int count = 0;
     
     // Vérification des paramètres
@@ -173,28 +178,29 @@
     }
     
     if (state->nbCards != totalCards) {
-        printf("WARNING: Card count mismatch! nbCards = %d, sum of cards by color = %d\n", 
+        debugPrint(1, "WARNING: Card count mismatch! nbCards = %d, sum of cards by color = %d", 
               state->nbCards, totalCards);
         // Correction du nombre de cartes
         state->nbCards = totalCards;
     }
     
     // Afficher le nombre total de cartes en main
-    printf("DEBUG: findPossibleRoutes - Total cards in hand: %d\n", state->nbCards);
-    printf("DEBUG: findPossibleRoutes - Cards by color:\n");
+    debugPrint(2, "DEBUG: findPossibleRoutes - Total cards in hand: %d", state->nbCards);
+    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
+                               "Orange", "Black", "Red", "Green", "Locomotive"};
+    
+    debugPrint(2, "DEBUG: findPossibleRoutes - Cards by color:");
     for (int c = 1; c < 10; c++) {
         if (state->nbCardsByColor[c] > 0) {
-            const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                                      "Orange", "Black", "Red", "Green", "Locomotive"};
-            printf("  - %s: %d\n", cardNames[c], state->nbCardsByColor[c]);
+            debugPrint(2, "  - %s: %d", cardNames[c], state->nbCardsByColor[c]);
         }
     }
     
     // Afficher le nombre de wagons restants
-    printf("DEBUG: findPossibleRoutes - Wagons left: %d\n", state->wagonsLeft);
+    debugPrint(2, "DEBUG: findPossibleRoutes - Wagons left: %d", state->wagonsLeft);
     
     // Pour chaque route
-    printf("DEBUG: Checking %d tracks for possible routes\n", state->nbTracks);
+    debugPrint(3, "DEBUG: Checking %d tracks for possible routes", state->nbTracks);
     for (int i = 0; i < state->nbTracks; i++) {
         // Si la route n'est pas déjà prise
         if (state->routes[i].owner == 0) {
@@ -204,17 +210,14 @@
             CardColor routeSecondColor = state->routes[i].secondColor;
             int length = state->routes[i].length;
             
-            const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                                     "Orange", "Black", "Red", "Green", "Locomotive"};
-            
-            printf("DEBUG: Examining route %d: from %d to %d, length %d, color %s, secondColor %s\n", 
+            debugPrint(3, "DEBUG: Examining route %d: from %d to %d, length %d, color %s, secondColor %s", 
                   i, from, to, length, 
                   (routeColor < 10) ? cardNames[routeColor] : "Unknown",
                   (routeSecondColor < 10) ? cardNames[routeSecondColor] : "Unknown");
             
             // Vérification rapide - si nous n'avons pas assez de wagons, passer à la route suivante
             if (state->wagonsLeft < length) {
-                printf("DEBUG: Not enough wagons for route %d (%d needed, %d available)\n", 
+                debugPrint(3, "DEBUG: Not enough wagons for route %d (%d needed, %d available)", 
                       i, length, state->wagonsLeft);
                 continue;
             }
@@ -225,12 +228,12 @@
             
             // Cas spécial: route grise (routeColor == LOCOMOTIVE)
             if (routeColor == LOCOMOTIVE || routeSecondColor == LOCOMOTIVE) {
-                printf("DEBUG: Gray route detected - checking all colors\n");
+                debugPrint(3, "DEBUG: Gray route detected - checking all colors");
                 // Pour les routes grises, toutes les couleurs dont on a des cartes sont valides
                 for (int c = 1; c < 10; c++) { // Commence à 1 pour éviter NONE
                     if (state->nbCardsByColor[c] > 0 && c != LOCOMOTIVE) {
                         colorsToCheck[numColorsToCheck++] = c;
-                        printf("DEBUG: Adding color %s to check (have %d cards)\n", 
+                        debugPrint(3, "DEBUG: Adding color %s to check (have %d cards)", 
                               cardNames[c], state->nbCardsByColor[c]);
                     }
                 }
@@ -238,14 +241,14 @@
                 // Pour les routes colorées, uniquement la(les) couleur(s) de la route
                 if (routeColor != NONE && state->nbCardsByColor[routeColor] > 0) {
                     colorsToCheck[numColorsToCheck++] = routeColor;
-                    printf("DEBUG: Adding route color %s to check (have %d cards)\n", 
+                    debugPrint(3, "DEBUG: Adding route color %s to check (have %d cards)", 
                           cardNames[routeColor], state->nbCardsByColor[routeColor]);
                 }
                 
                 if (routeSecondColor != NONE && routeSecondColor != routeColor && 
                     state->nbCardsByColor[routeSecondColor] > 0) {
                     colorsToCheck[numColorsToCheck++] = routeSecondColor;
-                    printf("DEBUG: Adding route second color %s to check (have %d cards)\n", 
+                    debugPrint(3, "DEBUG: Adding route second color %s to check (have %d cards)", 
                           cardNames[routeSecondColor], state->nbCardsByColor[routeSecondColor]);
                 }
             }
@@ -255,24 +258,22 @@
                 // Pour les routes grises ou si nous n'avons pas les couleurs de la route
                 if (numColorsToCheck == 0 || routeColor == LOCOMOTIVE || routeSecondColor == LOCOMOTIVE) {
                     colorsToCheck[numColorsToCheck++] = LOCOMOTIVE;
-                    printf("DEBUG: Adding locomotives to check (have %d cards)\n", 
+                    debugPrint(3, "DEBUG: Adding locomotives to check (have %d cards)", 
                           state->nbCardsByColor[LOCOMOTIVE]);
                 }
             }
             
             // Si nous n'avons aucune carte utilisable pour cette route, passer à la suivante
             if (numColorsToCheck == 0) {
-                printf("DEBUG: No usable cards for route %d\n", i);
+                debugPrint(3, "DEBUG: No usable cards for route %d", i);
                 continue;
             }
             
-            printf("DEBUG: Found %d colors to check for route %d\n", numColorsToCheck, i);
+            debugPrint(3, "DEBUG: Found %d colors to check for route %d", numColorsToCheck, i);
             
             // Vérifier chaque couleur possible pour cette route
             for (int c = 0; c < numColorsToCheck; c++) {
-                CardColor color = colorsToCheck[c];
-                
-                printf("DEBUG: Checking color %s for route %d\n", cardNames[color], i);
+                CardColor color = colorsToCheck[c];debugPrint(3, "DEBUG: Checking color %s for route %d", cardNames[color], i);
                 
                 // Vérification rapide - si nous n'avons pas assez de cartes au total, passer à la couleur suivante
                 int totalAvailableCards = (color == LOCOMOTIVE) ? 
@@ -280,19 +281,19 @@
                                          state->nbCardsByColor[color] + state->nbCardsByColor[LOCOMOTIVE];
                 
                 if (totalAvailableCards < length) {
-                    printf("DEBUG: Not enough cards of color %s + locomotives for route %d (%d needed, have %d)\n", 
+                    debugPrint(3, "DEBUG: Not enough cards of color %s + locomotives for route %d (%d needed, have %d)", 
                           cardNames[color], i, length, totalAvailableCards);
                     continue;
                 }
                 
                 int nbLocomotives = 0;
-                printf("DEBUG: Calling canClaimRoute for route %d with color %s\n", i, cardNames[color]);
+                debugPrint(3, "DEBUG: Calling canClaimRoute for route %d with color %s", i, cardNames[color]);
                 if (canClaimRoute(state, from, to, color, &nbLocomotives)) {
                     // Double vérification que nous avons assez de cartes
                     int availableColorCards = state->nbCardsByColor[color];
                     int availableLocomotives = state->nbCardsByColor[LOCOMOTIVE];
                     
-                    printf("DEBUG: canClaimRoute returned true with %d locomotives needed\n", nbLocomotives);
+                    debugPrint(3, "DEBUG: canClaimRoute returned true with %d locomotives needed", nbLocomotives);
                     
                     // Si on utilise des locomotives, on vérifie qu'on en a assez
                     if (nbLocomotives <= availableLocomotives && 
@@ -311,17 +312,17 @@
                             break; // Une seule couleur par route (sauf pour les routes grises)
                         }
                     } else {
-                        printf("DEBUG: Not enough cards after final check: need %d %s and %d locomotives, have %d and %d\n", 
+                        debugPrint(3, "DEBUG: Not enough cards after final check: need %d %s and %d locomotives, have %d and %d", 
                               length - nbLocomotives, cardNames[color], nbLocomotives, availableColorCards, availableLocomotives);
                     }
                 } else {
-                    printf("DEBUG: canClaimRoute returned false for route %d with color %s\n", i, cardNames[color]);
+                    debugPrint(3, "DEBUG: canClaimRoute returned false for route %d with color %s", i, cardNames[color]);
                 }
             }
         }
     }
     
-    printf("DEBUG: findPossibleRoutes found %d possible routes\n", count);
+    debugPrint(2, "DEBUG: findPossibleRoutes found %d possible routes", count);
     return count;
 }
 

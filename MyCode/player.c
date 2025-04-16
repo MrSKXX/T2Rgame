@@ -145,13 +145,14 @@ ResultCode playFirstTurn(GameState* state) {
 }
 
 // Joue un tour normal
+// Modification de la fonction playTurn pour capturer le message final
 ResultCode playTurn(GameState* state, StrategyType strategy) {
     ResultCode returnCode;
     MoveData myMove;
     MoveResult myMoveResult;
     BoardState boardState;
     
-    // Variable statique pour suivre si une carte a déjà été piochée ce tour
+    // Variable statique pour suivre si une carte a déjà été piochée ce tour-ci
     static int cardDrawnThisTurn = 0;  // 0 = début de tour, 1 = une carte non-locomotive déjà piochée
     
     // Récupère l'état du plateau (cartes visibles)
@@ -261,18 +262,19 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
     if (returnCode == SERVER_ERROR || returnCode == PARAM_ERROR) {
         printf("Game has ended. Return code: 0x%x\n", returnCode);
         
-        // Si le message contient "winner", c'est une fin normale de partie
-        if (myMoveResult.message && strstr(myMoveResult.message, "winner")) {
-            printf("GAME OVER - Partie terminée normalement. Message: %s\n", myMoveResult.message);
+        // Si le message contient "Total score" ou "winner", c'est une fin normale de partie
+        if (myMoveResult.message && 
+            (strstr(myMoveResult.message, "Total score") || strstr(myMoveResult.message, "winner"))) {
             
-            // Essayons d'extraire le nom du gagnant
-            char winner[100] = "unknown";
-            sscanf(myMoveResult.message, "{\"state\": 1, \"winner\": \"%99[^\"]\"}", winner);
-            printf("Le gagnant est: %s\n", winner);
+            printf("\n==================================================\n");
+            printf("              RÉSULTAT DE LA PARTIE               \n");
+            printf("==================================================\n");
+            printf("%s\n", myMoveResult.message);
+            printf("==================================================\n\n");
             
-            // C'est une fin normale, pas une erreur
+            // Même si c'est une fin de partie, on retourne SERVER_ERROR pour indiquer au main de terminer
             cleanupMoveResult(&myMoveResult);
-            return SERVER_ERROR; // Indique la fin du jeu, mais ce n'est pas une erreur
+            return SERVER_ERROR;
         }
         
         if (myMoveResult.opponentMessage) {
