@@ -2,6 +2,7 @@
     "files.associations": {
         "gamestate.h": "c",
         "clientapi.h": "c",
-        "tickettoride.h": "c"
+        "tickettoride.h": "c",
+        "stdarg.h": "c"
     }
 }
