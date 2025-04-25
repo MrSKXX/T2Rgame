@@ -240,40 +240,49 @@ void addClaimedRoute(GameState* state, int from, int to) {
 
 
 // Met à jour l'état du jeu après une action de l'adversaire
+// Met à jour l'état du jeu après une action de l'adversaire
+// Met à jour l'état du jeu après une action de l'adversaire
 void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
+    if (!state || !moveData) {
+        printf("ERROR: NULL parameters in updateAfterOpponentMove\n");
+        return;
+    }
+
     switch (moveData->action) {
         case CLAIM_ROUTE:
             // L'adversaire a pris une route
-            int from = moveData->claimRoute.from;
-            int to = moveData->claimRoute.to;
-            
-            // Trouve l'index de la route
-            int routeIndex = -1;
-            for (int i = 0; i < state->nbTracks; i++) {
-                if ((state->routes[i].from == from && state->routes[i].to == to) ||
-                    (state->routes[i].from == to && state->routes[i].to == from)) {
-                    routeIndex = i;
-                    break;
+            {
+                int from = moveData->claimRoute.from;
+                int to = moveData->claimRoute.to;
+                
+                // Trouve l'index de la route
+                int routeIndex = -1;
+                for (int i = 0; i < state->nbTracks; i++) {
+                    if ((state->routes[i].from == from && state->routes[i].to == to) ||
+                        (state->routes[i].from == to && state->routes[i].to == from)) {
+                        routeIndex = i;
+                        break;
+                    }
                 }
-            }
-            
-            if (routeIndex != -1) {
-                // Marque la route comme prise par l'adversaire
-                state->routes[routeIndex].owner = 2;
                 
-                // Réduit le nombre de wagons de l'adversaire
-                state->opponentWagonsLeft -= state->routes[routeIndex].length;
-                
-                printf("ATTENTION: Adversaire a pris la route %d à %d (route #%d, longueur %d)\n", 
-                       from, to, routeIndex, state->routes[routeIndex].length);
-                
-                // Vérifie si c'est le dernier tour
-                if (state->opponentWagonsLeft <= 2) {
-                    state->lastTurn = 1;
-                    printf("LAST TURN: Opponent has <= 2 wagons left\n");
+                if (routeIndex != -1) {
+                    // Marque la route comme prise par l'adversaire
+                    state->routes[routeIndex].owner = 2;
+                    
+                    // Réduit le nombre de wagons de l'adversaire
+                    state->opponentWagonsLeft -= state->routes[routeIndex].length;
+                    
+                    printf("ATTENTION: Adversaire a pris la route %d à %d (route #%d, longueur %d)\n", 
+                           from, to, routeIndex, state->routes[routeIndex].length);
+                    
+                    // Vérifie si c'est le dernier tour
+                    if (state->opponentWagonsLeft <= 2) {
+                        state->lastTurn = 1;
+                        printf("LAST TURN: Opponent has <= 2 wagons left\n");
+                    }
+                } else {
+                    printf("WARNING: Could not find route claimed by opponent from %d to %d\n", from, to);
                 }
-            } else {
-                printf("WARNING: Could not find route claimed by opponent from %d to %d\n", from, to);
             }
             break;
             
@@ -285,14 +294,34 @@ void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
             
         case CHOOSE_OBJECTIVES:
             // L'adversaire a choisi des objectifs
-            int keptObjectives = 0;
-            for (int i = 0; i < 3; i++) {
-                if (moveData->chooseObjectives[i]) {
-                    keptObjectives++;
+            {
+                int keptObjectives = 0;
+                for (int i = 0; i < 3; i++) {
+                    if (moveData->chooseObjectives[i]) {
+                        keptObjectives++;
+                    }
                 }
+                state->opponentObjectiveCount += keptObjectives;
+                printf("Opponent kept %d objectives\n", keptObjectives);
             }
-            state->opponentObjectiveCount += keptObjectives;
             break;
+
+        case DRAW_OBJECTIVES:
+            // L'adversaire pioche des objectifs - pas de mise à jour d'état pour l'instant
+            // car nous ne savons pas combien il en gardera jusqu'à ce qu'il choisisse
+            printf("Opponent is drawing objective cards\n");
+            break;
+            
+        default:
+            printf("WARNING: Unknown action %d in updateAfterOpponentMove\n", moveData->action);
+            break;
+    
+
+            
+    }
+    if (moveData->action == CLAIM_ROUTE) {
+        // Also update opponent model for enhanced strategy
+        updateOpponentObjectiveModel(state, moveData->claimRoute.from, moveData->claimRoute.to);
     }
 }
 

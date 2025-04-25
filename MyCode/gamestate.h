@@ -12,6 +12,7 @@
 #define MAX_ROUTES 150      // Nombre maximum de routes sur le plateau
 #define MAX_CITIES 50       // Nombre maximum de villes
 
+
 // Structure pour représenter une route
 typedef struct {
     int from;               // Ville de départ
@@ -60,6 +61,9 @@ typedef struct {
     // Compteur de tours
     int turnCount;          // Nombre de tours joués
 } GameState;
+
+
+void updateOpponentObjectiveModel(GameState* state, int from, int to);
 
 /**
  * Initialise l'état du jeu à partir des données initiales

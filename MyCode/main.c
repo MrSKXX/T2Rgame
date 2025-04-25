@@ -19,10 +19,6 @@
 #define MAX_TURNS 200
 
 // Niveau de débogage
-// 0 = aucun message de débogage
-// 1 = messages importants seulement
-// 2 = messages détaillés
-// 3 = tous les messages (très verbeux)
 #define DEBUG_LEVEL 0
 
 // Fonction utilitaire pour afficher les messages de débogage selon le niveau
@@ -34,6 +30,24 @@ void debugPrint(int level, const char* format, ...) {
         va_end(args);
         printf("\n");
     }
+}
+
+// Update board state and visible cards
+bool updateBoardState(GameState* gameState) {
+    BoardState boardState;
+    ResultCode result = getBoardState(&boardState);
+    
+    if (result != ALL_GOOD) {
+        printf("WARNING: Failed to get board state: 0x%x\n", result);
+        return false;
+    }
+    
+    // Update visible cards
+    for (int i = 0; i < 5; i++) {
+        gameState->visibleCards[i] = boardState.card[i];
+    }
+    
+    return true;
 }
 
 // Vérifie si le jeu est terminé en analysant les messages d'erreur
@@ -110,8 +124,7 @@ void printGameResult(char* message, const char* playerName, int ourCalculatedSco
                     if (strstr(cleanName, playerName)) {
                         strcpy(ourName, cleanName);
                         ourScoreFromMessage = score;
-                    } else {
-                        strcpy(opponentName, cleanName);
+                    } else {strcpy(opponentName, cleanName);
                         opponentScoreFromMessage = score;
                     }
                 }
@@ -191,7 +204,7 @@ int main() {
     
     // Initialiser notre état de jeu
     GameState gameState;
-    StrategyType strategy = STRATEGY_BASIC;
+    StrategyType strategy = STRATEGY_ADVANCED;  // Utiliser la stratégie avancée
     
     initPlayer(&gameState, strategy, &gameData);
     
@@ -209,7 +222,6 @@ int main() {
     // D'après les tests, il semble que:
     // - Si starter == 0, c'est à nous de commencer
     // - Si starter == 1, c'est à l'adversaire de commencer
-    // Nous initialisons ourTurn en conséquence:
     bool ourTurn = (gameData.starter != 1);
     
     printf("Nous %s en premier\n", ourTurn ? "jouons" : "ne jouons pas");
@@ -218,6 +230,9 @@ int main() {
     while (gameRunning) {
         turnCounter++;
         printf("\n\n=== TOUR %d ===\n", turnCounter);
+        
+        // Mettre à jour les cartes visibles
+        updateBoardState(&gameState);
         printf("C'est %s tour\n", ourTurn ? "notre" : "le tour de l'adversaire");
         
         // Vérification du timeout
@@ -225,28 +240,6 @@ int main() {
             printf("⚠️ Nombre maximum de tours atteint (%d), arrêt du jeu ⚠️\n", MAX_TURNS);
             gameRunning = false;
             break;
-        }
-        
-        // Vérification périodique de l'état du jeu
-        if (turnCounter % 5 == 0) {
-            printf("Vérification périodique de l'état du jeu...\n");
-            BoardState checkState;
-            if (getBoardState(&checkState) != ALL_GOOD) {
-                printf("⚠️ Erreur lors de la vérification de l'état du jeu ⚠️\n");
-                consecutiveErrors++;
-                
-                if (consecutiveErrors > 3) {
-                    printf("⚠️ Trop d'erreurs consécutives, arrêt du jeu ⚠️\n");
-                    gameRunning = false;
-                    break;
-                }
-                
-                // Essayer de continuer avec le tour suivant
-                ourTurn = !ourTurn; // Essayer l'autre joueur
-                continue;
-            } else {
-                consecutiveErrors = 0; // Réinitialiser le compteur d'erreurs
-            }
         }
         
         // Vérification des conditions de fin de partie
@@ -264,34 +257,9 @@ int main() {
         ResultCode boardResult = printBoard();
         if (boardResult != ALL_GOOD) {
             printf("⚠️ Erreur lors de l'affichage du plateau: 0x%x ⚠️\n", boardResult);
+            
             if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
                 printf("Fin de partie détectée lors de l'affichage du plateau.\n");
-                gameRunning = false;
-                break;
-            }
-            
-            consecutiveErrors++;
-            if (consecutiveErrors > 3) {
-                printf("⚠️ Trop d'erreurs consécutives, arrêt du jeu ⚠️\n");
-                gameRunning = false;
-                break;
-            }
-            
-            continue;
-        }
-        
-        // Mettre à jour les cartes visibles
-        BoardState boardState;
-        ResultCode stateResult = getBoardState(&boardState);
-        if (stateResult == ALL_GOOD) {
-            for (int i = 0; i < 5; i++) {
-                gameState.visibleCards[i] = boardState.card[i];
-            }
-            consecutiveErrors = 0; // Réinitialiser le compteur d'erreurs
-        } else {
-            printf("⚠️ Erreur lors de la récupération des cartes visibles: 0x%x ⚠️\n", stateResult);
-            if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
-                printf("Fin de partie détectée lors de la récupération des cartes visibles.\n");
                 gameRunning = false;
                 break;
             }
@@ -313,7 +281,7 @@ int main() {
             printf("\n--- Playing our turn ---\n");
             
             ResultCode playCode;
-            MoveResult moveResult = {0};
+            MoveResult moveResult = {0};  // Initialize to zeros
             
             // Jouer selon le mode (manuel ou IA)
             if (MANUAL_MODE) {
@@ -358,6 +326,9 @@ int main() {
                 if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
                     printf("Fin de partie détectée.\n");
                     gameRunning = false;
+                    if (moveResult.message) {  // Check for NULL
+                        cleanupMoveResult(&moveResult);
+                    }
                     break;
                 }
                 
@@ -366,6 +337,24 @@ int main() {
                     printf("Fin de partie détectée via le message du serveur.\n");
                     if (finalGameMessage) free(finalGameMessage);
                     finalGameMessage = strdup(moveResult.message);
+                    gameRunning = false;
+                    cleanupMoveResult(&moveResult);
+                    break;
+                }
+                
+                // Si le message contient "It's our turn", c'est probablement une désynchronisation
+                if (moveResult.message && strstr(moveResult.message, "It's our turn")) {
+                    printf("⚠️ Le serveur indique que c'est notre tour, réessayer ⚠️\n");
+                    // Ne pas changer ourTurn, déjà à true
+                    cleanupMoveResult(&moveResult);
+                    continue;
+                }
+                
+                // Si le message contient des indications de fin de jeu
+                if (moveResult.message && 
+                    (strstr(moveResult.message, "Bad protocol") || 
+                     strstr(moveResult.message, "WAIT_GAME"))) {
+                    printf("⚠️ Le serveur indique que le jeu est terminé ⚠️\n");
                     gameRunning = false;
                     cleanupMoveResult(&moveResult);
                     break;
@@ -394,6 +383,9 @@ int main() {
                 if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
                     printf("Fin de partie détectée. Dernière erreur: 0x%x\n", playCode);
                     gameRunning = false;
+                    if (moveResult.message) {  // Check for NULL
+                        cleanupMoveResult(&moveResult);
+                    }
                     break;
                 }
                 
@@ -447,7 +439,7 @@ int main() {
             printf("\n--- Waiting for opponent's move ---\n");
             
             MoveData opponentMove;
-            MoveResult opponentMoveResult;
+            MoveResult opponentMoveResult = {0};  // Initialize to zeros
             ResultCode moveCode = getMove(&opponentMove, &opponentMoveResult);
             
             if (moveCode == ALL_GOOD) {
@@ -502,6 +494,16 @@ int main() {
                     ourTurn = true;  // Forcer notre tour
                     cleanupMoveResult(&opponentMoveResult);
                     continue;  // Revenir au début de la boucle
+                }
+                
+                // Si le message contient des indications de fin de jeu
+                if (opponentMoveResult.message && 
+                    (strstr(opponentMoveResult.message, "Bad protocol") || 
+                     strstr(opponentMoveResult.message, "WAIT_GAME"))) {
+                    printf("⚠️ Le serveur indique que le jeu est terminé ⚠️\n");
+                    gameRunning = false;
+                    cleanupMoveResult(&opponentMoveResult);
+                    break;
                 }
                 
                 // Vérifier si c'est la fin de partie

@@ -5,6 +5,7 @@
 #ifndef STRATEGY_H
 #define STRATEGY_H
 
+#include <stdbool.h>
 #include "gamestate.h"
 #include "../tickettorideapi/ticketToRide.h"
 
@@ -14,6 +15,12 @@ typedef enum {
     STRATEGY_DIJKSTRA,   // Stratégie utilisant Dijkstra pour optimiser les chemins
     STRATEGY_ADVANCED    // Stratégie avancée (combinaison de plusieurs approches)
 } StrategyType;
+
+// Game phase constants - ensure these match the values in strategy.c
+#define PHASE_EARLY 0    // Focus on drawing cards and initial positioning
+#define PHASE_MIDDLE 1   // Focus on completing objectives and blocking opponent
+#define PHASE_LATE 2     // Focus on completing remaining objectives and claiming valuable routes
+#define PHASE_FINAL 3    // Last few turns, maximize points
 
 /**
  * Décide quelle action effectuer en fonction de l'état du jeu
@@ -104,5 +111,35 @@ void sortRoutesByUtility(GameState* state, int* possibleRoutes, CardColor* possi
  * @return Distance du chemin ou -1 si aucun chemin n'est trouvé
  */
 int findShortestPath(GameState* state, int start, int end, int* path, int* pathLength);
+
+/**
+ * Enhanced evaluation of route utility that considers multiple factors
+ */
+int enhancedEvaluateRouteUtility(GameState* state, int routeIndex);
+
+/**
+ * Calculate how much a route helps with objective completion
+ */
+int calculateObjectiveProgress(GameState* state, int routeIndex);
+
+/**
+ * Strategic card drawing based on needs
+ */
+int strategicCardDrawing(GameState* state);
+
+/**
+ * Update opponent model based on their moves
+ */
+void updateOpponentObjectiveModel(GameState* state, int from, int to);
+
+/**
+ * Enhanced AI strategy that uses all advanced features
+ */
+int superAdvancedStrategy(GameState* state, MoveData* moveData);
+
+/**
+ * Enhanced update after opponent move that also updates our model of opponent behavior
+ */
+void enhancedUpdateAfterOpponentMove(GameState* state, MoveData* moveData);
 
 #endif // STRATEGY_H
