@@ -483,3 +483,84 @@ void printGameState(GameState* state) {
     }
     printf("------------------\n\n");
 }
+
+// Cette fonction doit être ajoutée dans gamestate.c 
+
+/**
+ * Affiche une représentation visuelle de la matrice de connectivité
+ * Utile pour déboguer et vérifier les connexions entre villes
+ */
+void printConnectivityMatrix(GameState* state) {
+    if (!state) {
+        printf("ERROR: NULL state in printConnectivityMatrix\n");
+        return;
+    }
+
+    printf("\n=== CONNECTIVITY MATRIX ===\n");
+    
+    // Nombre maximum de villes à afficher pour la lisibilité
+    int maxCitiesToShow = 10;
+    if (state->nbCities < maxCitiesToShow) {
+        maxCitiesToShow = state->nbCities;
+    }
+    
+    // En-tête des colonnes
+    printf("    ");
+    for (int j = 0; j < maxCitiesToShow; j++) {
+        printf("%2d ", j);
+    }
+    printf("\n");
+    
+    // Ligne de séparation
+    printf("   ");
+    for (int j = 0; j < maxCitiesToShow; j++) {
+        printf("---");
+    }
+    printf("\n");
+    
+    // Contenu de la matrice
+    for (int i = 0; i < maxCitiesToShow; i++) {
+        printf("%2d | ", i);
+        for (int j = 0; j < maxCitiesToShow; j++) {
+            if (i < state->nbCities && j < state->nbCities) {
+                printf("%2d ", state->cityConnected[i][j]);
+            } else {
+                printf(" - "); // Pour les indices hors limites
+            }
+        }
+        printf("\n");
+    }
+    
+    // Informations supplémentaires
+    int connectedPairs = 0;
+    for (int i = 0; i < state->nbCities; i++) {
+        for (int j = i+1; j < state->nbCities; j++) {
+            if (state->cityConnected[i][j]) {
+                connectedPairs++;
+            }
+        }
+    }
+    
+    printf("\nTotal connected city pairs: %d out of %d possible pairs\n", 
+           connectedPairs, (state->nbCities * (state->nbCities - 1)) / 2);
+    
+    // Pour chaque objectif, vérifier s'il est complété
+    printf("\nObjective connectivity status:\n");
+    for (int i = 0; i < state->nbObjectives; i++) {
+        if (i < 0 || i >= MAX_OBJECTIVES) continue;
+        
+        int from = state->objectives[i].from;
+        int to = state->objectives[i].to;
+        
+        if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
+            printf("  Objective %d: Invalid cities\n", i+1);
+            continue;
+        }
+        
+        bool connected = state->cityConnected[from][to];
+        printf("  Objective %d: From %d to %d - %s\n", 
+               i+1, from, to, connected ? "CONNECTED" : "not connected");
+    }
+    
+    printf("=========================\n\n");
+}

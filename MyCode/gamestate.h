@@ -105,4 +105,8 @@ void addObjectives(GameState* state, Objective* objectives, int count);
  */
 void printGameState(GameState* state);
 
+
+void printConnectivityMatrix(GameState* state);
+
+
 #endif // GAMESTATE_H
