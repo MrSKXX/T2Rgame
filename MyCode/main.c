@@ -193,7 +193,9 @@ int main() {
     }
     printf("Successfully connected to server.\n");
 
-    const char* gameSettings = "TRAINING NICE_BOT";
+
+    //les bots qu'on peut jouer contre sont: PLAY_RANDOM, DO_NOTHING
+    const char* gameSettings = "TRAINING DO_NOTHING";
     GameData gameData;
 
     // Envoi des paramètres de jeu

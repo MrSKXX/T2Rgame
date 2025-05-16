@@ -6,7 +6,12 @@
 #include "strategy.h"
 #include "rules.h"
 
+
+// Déclaration externe de checkObjectivesPaths
+extern void checkObjectivesPaths(GameState* state);
+
 // Fonction pour afficher les informations d'une carte
+
 void printCardName(CardColor card) {
     const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
                               "Orange", "Black", "Red", "Green", "Locomotive"};
@@ -76,8 +81,82 @@ ResultCode playFirstTurn(GameState* state) {
     // Demande de piocher des objectifs
     myMove.action = DRAW_OBJECTIVES;
     
-    // Envoie la requête
-    returnCode = sendMove(&myMove, &myMoveResult);
+    // VÉRIFICATION ET CORRECTION DES ROUTES AVANT D'ENVOYER L'ACTION
+if (myMove.action == CLAIM_ROUTE) {
+    int from = myMove.claimRoute.from;
+    int to = myMove.claimRoute.to;
+    CardColor color = myMove.claimRoute.color;
+    
+    // Trouver l'index de la route
+    int routeIndex = -1;
+    for (int i = 0; i < state->nbTracks; i++) {
+        if ((state->routes[i].from == from && state->routes[i].to == to) ||
+            (state->routes[i].from == to && state->routes[i].to == from)) {
+            routeIndex = i;
+            break;
+        }
+    }
+    
+    if (routeIndex != -1) {
+        CardColor routeColor = state->routes[routeIndex].color;
+        CardColor routeSecondColor = state->routes[routeIndex].secondColor;
+        
+        printf("VÉRIFICATION route %d-%d: couleur choisie %d, couleurs valides: %d", 
+               from, to, color, routeColor);
+        
+        if (routeSecondColor != NONE) {
+            printf(" ou %d", routeSecondColor);
+        }
+        printf("\n");
+        
+        // Si la route n'est pas grise, vérifier que la couleur est correcte
+        if (routeColor != LOCOMOTIVE) {
+            bool validColor = (color == routeColor || 
+                              (routeSecondColor != NONE && color == routeSecondColor) || 
+                              color == LOCOMOTIVE);
+            
+            if (!validColor) {
+                printf("CORRECTION: Couleur invalide! Forçage à la couleur correcte\n");
+                
+                // Choisir la première couleur valide que nous avons en quantité suffisante
+                if (state->nbCardsByColor[routeColor] >= state->routes[routeIndex].length) {
+                    myMove.claimRoute.color = routeColor;
+                    myMove.claimRoute.nbLocomotives = 0;
+                } 
+                else if (routeSecondColor != NONE && 
+                        state->nbCardsByColor[routeSecondColor] >= state->routes[routeIndex].length) {
+                    myMove.claimRoute.color = routeSecondColor;
+                    myMove.claimRoute.nbLocomotives = 0;
+                }
+                else if (routeColor != NONE && 
+                         state->nbCardsByColor[routeColor] + state->nbCardsByColor[LOCOMOTIVE] >= state->routes[routeIndex].length) {
+                    myMove.claimRoute.color = routeColor;
+                    myMove.claimRoute.nbLocomotives = state->routes[routeIndex].length - state->nbCardsByColor[routeColor];
+                }
+                else if (routeSecondColor != NONE && 
+                         state->nbCardsByColor[routeSecondColor] + state->nbCardsByColor[LOCOMOTIVE] >= state->routes[routeIndex].length) {
+                    myMove.claimRoute.color = routeSecondColor;
+                    myMove.claimRoute.nbLocomotives = state->routes[routeIndex].length - state->nbCardsByColor[routeSecondColor];
+                }
+                else if (state->nbCardsByColor[LOCOMOTIVE] >= state->routes[routeIndex].length) {
+                    myMove.claimRoute.color = LOCOMOTIVE;
+                    myMove.claimRoute.nbLocomotives = state->routes[routeIndex].length;
+                }
+                else {
+                    // Pas assez de cartes, utiliser le maximum de ce qu'on a
+                    printf("ERREUR: Pas assez de cartes pour prendre cette route!\n");
+                    // On pourrait changer à une autre action ici si nécessaire
+                    // Par exemple, piocher une carte au lieu de prendre une route
+                    myMove.action = DRAW_BLIND_CARD;
+                }
+            }
+        }
+    }
+}
+
+// APRÈS LA VÉRIFICATION, ENVOI DU COUP AU SERVEUR
+// Envoie l'action
+returnCode = sendMove(&myMove, &myMoveResult);
     
     if (returnCode != ALL_GOOD) {
         printf("Error sending DRAW_OBJECTIVES: 0x%x\n", returnCode);

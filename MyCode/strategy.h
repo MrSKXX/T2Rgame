@@ -100,6 +100,13 @@ int evaluateRouteUtility(GameState* state, int routeIndex);
 void sortRoutesByUtility(GameState* state, int* possibleRoutes, CardColor* possibleColors, 
                          int* possibleLocomotives, int numPossibleRoutes);
 
+
+/**
+ * Affiche les informations d'une carte
+ * @param card Couleur de la carte à afficher
+ */
+void printCardName(CardColor card);
+
 /**
  * Implémentation de l'algorithme de Dijkstra
  * Trouve le chemin le plus court entre deux villes
@@ -141,5 +148,36 @@ int superAdvancedStrategy(GameState* state, MoveData* moveData);
  * Enhanced update after opponent move that also updates our model of opponent behavior
  */
 void enhancedUpdateAfterOpponentMove(GameState* state, MoveData* moveData);
+
+void checkObjectivesPaths(GameState* state);
+
+
+
+
+
+
+/**
+ * Identifie les routes critiques à bloquer
+ * @param state État actuel du jeu
+ * @param routesToBlock Tableau à remplir avec les indices des routes à bloquer
+ * @param blockingPriorities Tableau à remplir avec les priorités de blocage
+ * @return Nombre de routes à bloquer identifiées
+ */
+int findCriticalRoutesToBlock(GameState* state, int* routesToBlock, int* blockingPriorities);
+
+
+
+const char* getCardName(CardColor color) {
+    static const char* cardNames[] = {
+        "None", "Purple", "White", "Blue", "Yellow", 
+        "Orange", "Black", "Red", "Green", "Locomotive"
+    };
+    
+    if (color >= 0 && color <= 9) {
+        return cardNames[color];
+    } else {
+        return "Unknown";
+    }
+}
 
 #endif // STRATEGY_H

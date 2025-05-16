@@ -25,6 +25,15 @@
  */
 
  // Extrait montrant la fonction modifiée avec gestion du débogage
+/**
+ * Vérifie si nous avons assez de cartes pour prendre une route
+ * @param state État actuel du jeu
+ * @param from Ville de départ
+ * @param to Ville d'arrivée
+ * @param color Couleur à utiliser
+ * @param nbLocomotives Nombre de locomotives à utiliser
+ * @return 1 si le coup est légal, 0 sinon
+ */
 int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLocomotives) {
     extern void debugPrint(int level, const char* format, ...);  // Déclaration externe
     
@@ -81,8 +90,7 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
     CardColor routeColor = state->routes[routeIndex].color;
     CardColor routeSecondColor = state->routes[routeIndex].secondColor;
 
-    // CORRECTION: Distinction claire entre routes grises et couleurs spécifiques
-    
+    // VÉRIFICATION STRICTE DE LA COULEUR DE LA ROUTE
     // Pour les routes grises (représentées par LOCOMOTIVE)
     if (routeColor == LOCOMOTIVE) {
         debugPrint(2, "DEBUG: canClaimRoute - This is a gray route, any color is valid");
@@ -121,63 +129,76 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
             return 0;
         }
     }
-    // Pour les routes doubles
-    else if (routeSecondColor != NONE) {
-        // Vérifier si la couleur choisie correspond à l'une des deux couleurs de la route
-        if (color != routeColor && color != routeSecondColor && color != LOCOMOTIVE) {
-            debugPrint(1, "ERROR: Invalid color for route: expected %s or %s, got %s",
-                cardNames[routeColor], cardNames[routeSecondColor], cardNames[color]);
-            return 0;
-        }
-    }
-    // Pour les routes simples colorées
+    // Pour les routes non grises, on doit ABSOLUMENT respecter la couleur
     else {
-        // Vérifier si la couleur choisie correspond à la couleur de la route
-        if (color != routeColor && color != LOCOMOTIVE) {
-            debugPrint(1, "ERROR: Invalid color for route: expected %s, got %s",
-                cardNames[routeColor], cardNames[color]);
-            return 0;
-        }
-    }
+        // Vérifier strictement que la couleur choisie est valide pour cette route
+        bool validColor = false;
         
-    // Compte combien de cartes de la bonne couleur nous avons
-    int colorCards = state->nbCardsByColor[color];
-    int locomotives = state->nbCardsByColor[LOCOMOTIVE];
-    
-    debugPrint(2, "DEBUG: canClaimRoute - We have %d %s cards and %d locomotives, need %d cards total",
-          colorCards, cardNames[color], locomotives, length);
-    
-    // Si on utilise des locomotives comme couleur principale
-    if (color == LOCOMOTIVE) {
-        if (locomotives >= length) {
-            *nbLocomotives = length; // Toutes les cartes sont des locomotives
-            debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d locomotives", *nbLocomotives);
+        // Soit la couleur correspond exactement à routeColor
+        if (color == routeColor) {
+            validColor = true;
+        }
+        // Soit c'est la couleur alternative (si elle existe)
+        else if (routeSecondColor != NONE && color == routeSecondColor) {
+            validColor = true;
+        }
+        // Soit nous utilisons des locomotives uniquement
+        else if (color == LOCOMOTIVE) {
+            validColor = true;
+        }
+        
+        if (!validColor) {
+            debugPrint(1, "ERROR: Invalid color for route %d-%d: expected %s", 
+                      from, to, cardNames[routeColor]);
+            
+            if (routeSecondColor != NONE) {
+                debugPrint(1, " or %s", cardNames[routeSecondColor]);
+            }
+            
+            debugPrint(1, ", got %s", cardNames[color]);
+            
+            return 0;  // Couleur invalide, impossible de prendre la route
+        }
+        
+        // Compte combien de cartes de la bonne couleur nous avons
+        int colorCards = state->nbCardsByColor[color];
+        int locomotives = state->nbCardsByColor[LOCOMOTIVE];
+        
+        debugPrint(2, "DEBUG: canClaimRoute - We have %d %s cards and %d locomotives, need %d cards total",
+              colorCards, cardNames[color], locomotives, length);
+        
+        // Si on utilise des locomotives comme couleur principale
+        if (color == LOCOMOTIVE) {
+            if (locomotives >= length) {
+                *nbLocomotives = length; // Toutes les cartes sont des locomotives
+                debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d locomotives", *nbLocomotives);
+                return 1;
+            } else {
+                debugPrint(2, "DEBUG: canClaimRoute - Not enough locomotives (%d needed, %d available)", 
+                      length, locomotives);
+                return 0;
+            }
+        }
+        
+        // Vérification plus claire du nombre de cartes nécessaires
+        // Combien de locomotives devons-nous utiliser?
+        if (colorCards >= length) {
+            // Assez de cartes de la bonne couleur, pas besoin de locomotives
+            *nbLocomotives = 0;
+            debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d %s cards, no locomotives needed",
+                  length, cardNames[color]);
+            return 1;
+        } else if (colorCards + locomotives >= length) {
+            // On peut compléter avec des locomotives
+            *nbLocomotives = length - colorCards;
+            debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d %s cards and %d locomotives",
+                  colorCards, cardNames[color], *nbLocomotives);
             return 1;
         } else {
-            debugPrint(2, "DEBUG: canClaimRoute - Not enough locomotives (%d needed, %d available)", 
-                  length, locomotives);
+            debugPrint(2, "DEBUG: canClaimRoute - Not enough cards to claim route (%d %s + %d locomotives available, %d needed)",
+                  colorCards, cardNames[color], locomotives, length);
             return 0;
         }
-    }
-    
-    // CORRECTION: Vérification plus claire du nombre de cartes nécessaires
-    // Combien de locomotives devons-nous utiliser?
-    if (colorCards >= length) {
-        // Assez de cartes de la bonne couleur, pas besoin de locomotives
-        *nbLocomotives = 0;
-        debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d %s cards, no locomotives needed",
-              length, cardNames[color]);
-        return 1;
-    } else if (colorCards + locomotives >= length) {
-        // On peut compléter avec des locomotives
-        *nbLocomotives = length - colorCards;
-        debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d %s cards and %d locomotives",
-              colorCards, cardNames[color], *nbLocomotives);
-        return 1;
-    } else {
-        debugPrint(2, "DEBUG: canClaimRoute - Not enough cards to claim route (%d %s + %d locomotives available, %d needed)",
-              colorCards, cardNames[color], locomotives, length);
-        return 0;
     }
 }
 /*
@@ -381,8 +402,30 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
                         
                         // CORRECTION: Ne pas continuer à chercher d'autres couleurs pour les routes non-grises
                         // Pour les routes grises, on veut explorer toutes les couleurs possibles
+                        // Dans rules.c, fonction findPossibleRoutes
+
+                        // Pour les routes colorées, être sûr de choisir la bonne couleur
                         if (routeColor != LOCOMOTIVE) {
-                            break; // Une seule couleur par route (sauf pour les routes grises)
+                            // Pour les routes colorées, uniquement les couleurs valides
+                            if (state->nbCardsByColor[routeColor] > 0) {
+                                if (numColorsToCheck < 9) {
+                                    colorsToCheck[numColorsToCheck++] = routeColor;
+                                }
+                            }
+                            
+                            if (routeSecondColor != NONE && routeSecondColor != routeColor && 
+                                state->nbCardsByColor[routeSecondColor] > 0) {
+                                if (numColorsToCheck < 9) {
+                                    colorsToCheck[numColorsToCheck++] = routeSecondColor;
+                                }
+                            }
+                            
+                            // Ajouter les locomotives comme option seulement si on a assez
+                            if (state->nbCardsByColor[LOCOMOTIVE] >= length) {
+                                if (numColorsToCheck < 9) {
+                                    colorsToCheck[numColorsToCheck++] = LOCOMOTIVE;
+                                }
+                            }
                         }
                     }
                 }
