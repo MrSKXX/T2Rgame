@@ -167,17 +167,6 @@ int findCriticalRoutesToBlock(GameState* state, int* routesToBlock, int* blockin
 
 
 
-const char* getCardName(CardColor color) {
-    static const char* cardNames[] = {
-        "None", "Purple", "White", "Blue", "Yellow", 
-        "Orange", "Black", "Red", "Green", "Locomotive"
-    };
-    
-    if (color >= 0 && color <= 9) {
-        return cardNames[color];
-    } else {
-        return "Unknown";
-    }
-}
+
 
 #endif // STRATEGY_H

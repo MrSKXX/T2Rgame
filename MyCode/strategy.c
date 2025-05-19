@@ -23,6 +23,25 @@ void advancedRoutePrioritization(GameState* state, int* possibleRoutes, CardColo
                                int* possibleLocomotives, int numPossibleRoutes);
 
 int decideNextMove(GameState* state, StrategyType strategy, MoveData* moveData) {
+    // Activer le débogage avancé pour aider à identifier les problèmes
+    debugObjectives(state);
+    
+    // Ajout d'une trace supplémentaire avant de prendre des décisions
+    debugPrint(1, "Analyse de l'état du jeu pour prendre une décision");
+    printf("Cartes en main: ");
+    for (int i = 1; i < 10; i++) {
+        if (state->nbCardsByColor[i] > 0) {
+            printf("%s:%d ", 
+                  (i < 10) ? (const char*[]){
+                      "None", "Purple", "White", "Blue", "Yellow", 
+                      "Orange", "Black", "Red", "Green", "Locomotive"
+                  }[i] : "Unknown", 
+                  state->nbCardsByColor[i]);
+        }
+    }
+    printf("\n");
+    
+    // Continuer avec la stratégie choisie
     switch (strategy) {
         case STRATEGY_BASIC:
             return basicStrategy(state, moveData);
@@ -79,21 +98,32 @@ int enhancedEvaluateRouteUtility(GameState* state, int routeIndex) {
                 state->routes[claimedRouteIndex].to == from ||
                 state->routes[claimedRouteIndex].from == to || 
                 state->routes[claimedRouteIndex].to == to) {
-                utility += 10;
+                utility += 30;  // Augmenté de 10 à 30
                 break;
             }
         }
     }
     
-    // Bonus for longer routes (more points)
-    if (length >= 4) {
-        utility += length * 5;
+    // Bonus pour les routes longues (plus de points)
+    if (length >= 5) {
+        utility += length * 100;  // Bonus massif pour les routes très longues
+    } else if (length >= 4) {
+        utility += length * 50;   // Bonus important pour les routes longues
+    } else if (length >= 3) {
+        utility += length * 20;   // Bonus modéré pour les routes moyennes
     }
     
     return utility;
 }
 
 // Calculate how much a route helps with objective completion
+/**
+ * Calculate how much a route helps with objective completion
+ */
+// Dans calculateObjectiveProgress
+/**
+ * Calculate how much a route helps with objective completion
+ */
 int calculateObjectiveProgress(GameState* state, int routeIndex) {
     // Vérification de sécurité
     if (!state || routeIndex < 0 || routeIndex >= state->nbTracks) {
@@ -111,8 +141,8 @@ int calculateObjectiveProgress(GameState* state, int routeIndex) {
         return 0;
     }
     
-    // AUGMENTATION DU MULTIPLICATEUR - rendre ces routes beaucoup plus attractives
-    const int OBJECTIVE_MULTIPLIER = 50;  // Augmenté de 15 à 50
+    // Multiplicateur plus raisonnable pour les routes d'objectifs
+    const int OBJECTIVE_MULTIPLIER = 200;
     
     // Vérifier chaque objectif non complété
     for (int i = 0; i < state->nbObjectives; i++) {
@@ -138,69 +168,137 @@ int calculateObjectiveProgress(GameState* state, int routeIndex) {
             continue;
         }
         
-        // Bonus spécial si la route relie directement les villes de l'objectif
+        // Connexion directe - priorité importante (mais pas excessive)
         if ((from == objFrom && to == objTo) || (from == objTo && to == objFrom)) {
-            progress += objScore * OBJECTIVE_MULTIPLIER * 2;  // Double bonus pour connexion directe
-            printf("Direct connection for objective %d! Adding %d points\n", 
-                  i+1, objScore * OBJECTIVE_MULTIPLIER * 2);
+            int directBonus = objScore * OBJECTIVE_MULTIPLIER * 5;
+            progress += directBonus;
+            printf("!!! CONNEXION DIRECTE pour objectif %d !!! Bonus: %d\n", i+1, directBonus);
             continue;
         }
         
-        // Vérifier si cette route fait partie du chemin pour cet objectif
+        // Compter routes restantes pour cet objectif
+        int remainingRoutes = countRemainingRoutesForObjective(state, i);
+        
+        // Objectif presque complété - priorité élevée (mais pas excessive)
+        if (remainingRoutes == 1) {
+            int finalRouteBonus = objScore * OBJECTIVE_MULTIPLIER * 3;
+            
+            // Vérifier si cette route est la dernière nécessaire
+            int path[MAX_CITIES];
+            int pathLength = 0;
+            if (findShortestPath(state, objFrom, objTo, path, &pathLength) > 0) {
+                for (int j = 0; j < pathLength - 1; j++) {
+                    if ((path[j] == from && path[j+1] == to) || (path[j] == to && path[j+1] == from)) {
+                        progress += finalRouteBonus;
+                        printf("!!! DERNIÈRE ROUTE pour objectif %d !!! Bonus: %d\n", i+1, finalRouteBonus);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Route normale sur un chemin d'objectif
         int path[MAX_CITIES];
         int pathLength = 0;
         int distance = findShortestPath(state, objFrom, objTo, path, &pathLength);
         
         if (distance > 0 && pathLength > 0) {
-            bool routeOnPath = false;
-            
-            // Chercher si notre route est sur ce chemin
-            for (int j = 0; j < pathLength - 1 && j < MAX_CITIES - 1; j++) {
-                // Vérification des limites pour les villes du chemin
-                if (path[j] < 0 || path[j] >= state->nbCities || 
-                    path[j+1] < 0 || path[j+1] >= state->nbCities) {
-                    continue;
-                }
-                
-                if ((path[j] == from && path[j+1] == to) ||
-                    (path[j] == to && path[j+1] == from)) {
+            // Vérifier si notre route est sur ce chemin
+            for (int j = 0; j < pathLength - 1; j++) {
+                if ((path[j] == from && path[j+1] == to) || (path[j] == to && path[j+1] == from)) {
+                    // Bonus de base
+                    progress += objScore * OBJECTIVE_MULTIPLIER;
+                    printf("Route %d -> %d est sur le chemin de l'objectif %d\n", from, to, i+1);
                     
-                    routeOnPath = true;
+                    // Vérifier si c'est un pont critique (pas d'alternative)
+                    // Temporairement marquer cette route comme prise par l'adversaire
+                    int originalOwner = state->routes[routeIndex].owner;
+                    state->routes[routeIndex].owner = 2;
                     
-                    // Plus l'objectif vaut de points, plus la route est importante
-                    int basePoints = objScore * OBJECTIVE_MULTIPLIER;
-                    progress += basePoints;
+                    // Vérifier s'il existe encore un chemin
+                    int altPath[MAX_CITIES];
+                    int altPathLength = 0;
+                    int altDistance = findShortestPath(state, objFrom, objTo, altPath, &altPathLength);
                     
-                    // Bonus pour les routes courtes (plus efficaces)
-                    int length = state->routes[routeIndex].length;
-                    if (length <= 2) {
-                        progress += 20;  // Bonus pour routes courtes
+                    // Restaurer l'état original
+                    state->routes[routeIndex].owner = originalOwner;
+                    
+                    // Si aucun chemin alternatif n'existe, c'est un pont critique
+                    if (altDistance <= 0) {
+                        progress += objScore * OBJECTIVE_MULTIPLIER;  // Double le bonus
+                        printf("Route %d -> %d est un PONT CRITIQUE pour objectif %d\n", from, to, i+1);
                     }
                     
-                    // Bonus pour les routes plus tôt dans le chemin (priorité)
-                    if (j <= 1) {
-                        progress += 30;  // Bonus pour routes proches du début du chemin
-                    }
-                    
-                    // Bonus si la route crée un pont crucial (pas d'autres chemins)
-                    if (isCriticalBridge(state, from, to)) {
-                        progress += 40;  // Bonus important pour les ponts critiques
-                    }
-                    
-                    printf("Route on path for objective %d! Adding %d points\n", 
-                          i+1, basePoints);
                     break;
                 }
-            }
-            
-            // Si cette route est sur le chemin et que le chemin est court, c'est très important
-            if (routeOnPath && pathLength <= 4) {
-                progress += 30;  // Bonus supplémentaire pour les chemins courts
             }
         }
     }
     
     return progress;
+}
+
+/**
+ * Helper function: Count how many routes remain to complete an objective
+ */
+/**
+ * Helper function: Count how many routes remain to complete an objective
+ */
+/**
+ * Helper function: Count how many routes remain to complete an objective
+ */
+int countRemainingRoutesForObjective(GameState* state, int objectiveIndex) {
+    if (!state || objectiveIndex < 0 || objectiveIndex >= state->nbObjectives) {
+        return -1;  // Invalid params
+    }
+    
+    int objFrom = state->objectives[objectiveIndex].from;
+    int objTo = state->objectives[objectiveIndex].to;
+    
+    // Safety check
+    if (objFrom < 0 || objFrom >= state->nbCities || objTo < 0 || objTo >= state->nbCities) {
+        return -1;
+    }
+    
+    // If already completed, no routes needed
+    if (isObjectiveCompleted(state, state->objectives[objectiveIndex])) {
+        return 0;
+    }
+    
+    // Find the shortest path
+    int path[MAX_CITIES];
+    int pathLength = 0;
+    int distance = findShortestPath(state, objFrom, objTo, path, &pathLength);
+    
+    if (distance <= 0 || pathLength <= 0) {
+        return -1;  // No path exists
+    }
+    
+    // Count how many segments of the path we already own
+    int segmentsOwned = 0;
+    int totalSegments = pathLength - 1;
+    
+    for (int i = 0; i < pathLength - 1; i++) {
+        int cityA = path[i];
+        int cityB = path[i+1];
+        
+        // Safety check
+        if (cityA < 0 || cityA >= state->nbCities || cityB < 0 || cityB >= state->nbCities) {
+            continue;
+        }
+        
+        // Check if we already own a route between these cities
+        for (int j = 0; j < state->nbTracks; j++) {
+            if (((state->routes[j].from == cityA && state->routes[j].to == cityB) ||
+                 (state->routes[j].from == cityB && state->routes[j].to == cityA)) &&
+                state->routes[j].owner == 1) {  // We own it
+                segmentsOwned++;
+                break;
+            }
+        }
+    }
+    
+    return totalSegments - segmentsOwned;
 }
 
 
@@ -330,6 +428,13 @@ int evaluateCardEfficiency(GameState* state, int routeIndex) {
     CardColor routeColor = state->routes[routeIndex].color;
     int length = state->routes[routeIndex].length;
     
+
+ if (routeColor != LOCOMOTIVE && length <= 2 && state->nbCardsByColor[LOCOMOTIVE] > 0) {
+        // Pénalisation importante si on veut utiliser des locomotives pour des routes courtes
+        return 50;  // Valeur réduite par rapport au match parfait (150)
+    }
+
+
     // For gray routes, find the most efficient color to use
     if (routeColor == LOCOMOTIVE) {
         int bestEfficiency = 0;
@@ -340,8 +445,8 @@ int evaluateCardEfficiency(GameState* state, int routeIndex) {
                 int cardsAvailable = state->nbCardsByColor[c];
                 
                 if (cardsNeeded <= cardsAvailable) {
-                    // Perfect match
-                    int efficiency = 100;
+                    // Perfect match - augmenté pour favoriser l'utilisation des cartes
+                    int efficiency = 150;
                     if (efficiency > bestEfficiency) {
                         bestEfficiency = efficiency;
                     }
@@ -350,7 +455,7 @@ int evaluateCardEfficiency(GameState* state, int routeIndex) {
                     int locosNeeded = cardsNeeded - cardsAvailable;
                     if (locosNeeded <= state->nbCardsByColor[LOCOMOTIVE]) {
                         // Calculate efficiency (lower is better)
-                        int efficiency = 80 - (locosNeeded * 10);
+                        int efficiency = 100 - (locosNeeded * 10);  // Pénalité réduite
                         if (efficiency > bestEfficiency) {
                             bestEfficiency = efficiency;
                         }
@@ -366,14 +471,14 @@ int evaluateCardEfficiency(GameState* state, int routeIndex) {
         int cardsAvailable = state->nbCardsByColor[routeColor];
         
         if (cardsNeeded <= cardsAvailable) {
-            // Perfect match
-            return 100;
+            // Perfect match - augmenté pour favoriser l'utilisation des cartes
+            return 150;
         } else {
             // Need to supplement with locomotives
             int locosNeeded = cardsNeeded - cardsAvailable;
             if (locosNeeded <= state->nbCardsByColor[LOCOMOTIVE]) {
                 // Calculate efficiency (lower is better)
-                return 80 - (locosNeeded * 10);
+                return 100 - (locosNeeded * 10);  // Pénalité réduite
             }
         }
     }
@@ -591,6 +696,8 @@ int strategicCardDrawing(GameState* state) {
     return bestCardIndex;
 }
 
+// Amélioration massive de updateOpponentObjectiveModel
+// Amélioration massive de updateOpponentObjectiveModel
 void updateOpponentObjectiveModel(GameState* state, int from, int to) {
     // Safety checks
     if (from < 0 || from >= MAX_CITIES || to < 0 || to >= MAX_CITIES) {
@@ -598,71 +705,187 @@ void updateOpponentObjectiveModel(GameState* state, int from, int to) {
         return;
     }
     
-    static int opponentCityVisits[MAX_CITIES] = {0};  // Count how many connections each city has
-    static int opponentLikelyObjectives[MAX_CITIES][MAX_CITIES] = {0};  // Score for each potential opponent objective
+    static int opponentCityVisits[MAX_CITIES] = {0};  // Compteur de connexions par ville
+    static int opponentLikelyObjectives[MAX_CITIES][MAX_CITIES] = {0};  // Score de probabilité par paire de villes
+    static int opponentConsecutiveRoutesInDirection[MAX_CITIES] = {0}; // Détection de direction intentionnelle
     
-    // Update city visit counts
+    // Mettre à jour le compteur de visites
     opponentCityVisits[from]++;
     opponentCityVisits[to]++;
     
-    // Cities with multiple connections are likely objective endpoints
-    // Update the likelihood of each possible objective pair
-    for (int i = 0; i < state->nbCities; i++) {
-        if (i < MAX_CITIES && opponentCityVisits[i] >= 2) {
-            for (int j = 0; j < state->nbCities; j++) {
-                if (j < MAX_CITIES && i != j && opponentCityVisits[j] >= 2) {
-                    // Calculate distance between these potential objective cities
-                    int path[MAX_CITIES];
-                    int pathLength = 0;
-                    int distance = findShortestPath(state, i, j, path, &pathLength);
+    // Villes avec plusieurs connexions sont probablement des objectifs
+    if (opponentCityVisits[from] >= 2) {
+        printf("ADVERSAIRE: La ville %d semble être importante (connexions: %d)\n", 
+               from, opponentCityVisits[from]);
+    }
+    if (opponentCityVisits[to] >= 2) {
+        printf("ADVERSAIRE: La ville %d semble être importante (connexions: %d)\n", 
+               to, opponentCityVisits[to]);
+    }
+    
+    // Détecter les patterns de routes consécutives dans une direction
+    for (int i = 0; i < state->nbTracks; i++) {
+        if (state->routes[i].owner == 2) {  // Route de l'adversaire
+            // Si cette route est connectée à celle qu'il vient de prendre
+            if (state->routes[i].from == from || state->routes[i].from == to || 
+                state->routes[i].to == from || state->routes[i].to == to) {
+                
+                // Identifier les villes à l'autre extrémité de cette route existante
+                int otherCity = -1;
+                if (state->routes[i].from == from || state->routes[i].from == to) {
+                    otherCity = state->routes[i].to;
+                } else {
+                    otherCity = state->routes[i].from;
+                }
+                
+                if (otherCity != from && otherCity != to && otherCity >= 0 && otherCity < MAX_CITIES) {
+                    opponentConsecutiveRoutesInDirection[otherCity]++;
                     
-                    if (distance > 0) {
-                        // Cities that are further apart are more likely to be objectives
-                        // And if one of the cities is the one the opponent just connected to, increase score
-                        int baseScore = distance * 2;
-                        if (i == from || i == to || j == from || j == to) {
-                            baseScore += 5;
-                        }
-                        
-                        opponentLikelyObjectives[i][j] += baseScore;
-                        opponentLikelyObjectives[j][i] += baseScore; // Symmetric
-                        
-                        // If the opponent connects cities that are already well-connected, it's likely part of an objective
-                        if (opponentCityVisits[i] >= 3 && opponentCityVisits[j] >= 3) {
-                            opponentLikelyObjectives[i][j] += 10;
-                            opponentLikelyObjectives[j][i] += 10;
+                    if (opponentConsecutiveRoutesInDirection[otherCity] >= 2) {
+                        printf("TRAJECTOIRE ADVERSAIRE DÉTECTÉE: Direction vers la ville %d\n", otherCity);
+                        // Augmenter massivement la probabilité d'objectif dans cette direction
+                        for (int dest = 0; dest < state->nbCities && dest < MAX_CITIES; dest++) {
+                            if (dest != otherCity) {
+                                // Calculer distance approximative
+                                int dx = abs(dest - otherCity) % 10;  // Approximation grossière
+                                int distance = 10 - dx;  // Plus c'est loin, plus c'est probable
+                                if (distance > 0) {
+                                    opponentLikelyObjectives[otherCity][dest] += distance * 15;
+                                    opponentLikelyObjectives[dest][otherCity] += distance * 15;
+                                }
+                            }
                         }
                     }
                 }
             }
         }
     }
-
-    // Log the most likely opponent objectives for debugging
-    printf("Likely opponent objectives:\n");
-    int threshold = 15; // Only show high-probability objectives
+    
+    // Mettre à jour les probabilités d'objectifs
+    // Attribuer des scores élevés aux villes qui semblent être des extrémités
+    for (int i = 0; i < state->nbCities && i < MAX_CITIES; i++) {
+        if (opponentCityVisits[i] >= 2) {
+            for (int j = i+1; j < state->nbCities && j < MAX_CITIES; j++) {
+                if (opponentCityVisits[j] >= 2) {
+                    // Calculer distance
+                    int path[MAX_CITIES];
+                    int pathLength = 0;
+                    int distance = findShortestPath(state, i, j, path, &pathLength);
+                    
+                    if (distance > 0) {
+                        // Les distances moyennes (5-8) sont les plus probables pour des objectifs
+                        int distanceScore = 0;
+                        if (distance >= 4 && distance <= 9) {
+                            distanceScore = 10;  // Bon candidat pour un objectif
+                        } else if (distance >= 2 && distance <= 12) {
+                            distanceScore = 5;   // Candidat possible
+                        }
+                        
+                        // Vérifier s'il y a des routes de l'adversaire sur ce chemin
+                        int opponentRoutesOnPath = 0;
+                        for (int k = 0; k < pathLength - 1; k++) {
+                            int cityA = path[k];
+                            int cityB = path[k + 1];
+                            
+                            for (int r = 0; r < state->nbTracks; r++) {
+                                if (((state->routes[r].from == cityA && state->routes[r].to == cityB) ||
+                                     (state->routes[r].from == cityB && state->routes[r].to == cityA)) &&
+                                    state->routes[r].owner == 2) {  // Route de l'adversaire
+                                    opponentRoutesOnPath++;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Si l'adversaire a pris plusieurs routes sur ce chemin, c'est probablement un objectif
+                        if (opponentRoutesOnPath >= 2) {
+                            opponentLikelyObjectives[i][j] += 30 * opponentRoutesOnPath;
+                            opponentLikelyObjectives[j][i] += 30 * opponentRoutesOnPath;
+                            
+                            printf("OBJECTIF ADVERSE PROBABLE: %d -> %d (score: %d, routes: %d)\n", 
+                                   i, j, opponentLikelyObjectives[i][j], opponentRoutesOnPath);
+                        }
+                        else if (distanceScore > 0) {
+                            opponentLikelyObjectives[i][j] += distanceScore;
+                            opponentLikelyObjectives[j][i] += distanceScore;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Analyse des objectifs probables de l'adversaire
+    printf("Objectifs probables de l'adversaire:\n");
+    int threshold = 30;  // Seuil plus élevé pour être plus sélectif
     int count = 0;
+    int topObjectives[5][2];  // Stocker les 5 meilleurs objectifs
+    int topScores[5] = {0};
+    
     for (int i = 0; i < state->nbCities && i < MAX_CITIES; i++) {
         for (int j = i+1; j < state->nbCities && j < MAX_CITIES; j++) {
             if (opponentLikelyObjectives[i][j] > threshold) {
-                printf("  From %d to %d: score %d\n", i, j, opponentLikelyObjectives[i][j]);
-                if (++count >= 5) break; // Limit output to 5 objectives
+                // Insérer dans notre top 5
+                for (int k = 0; k < 5; k++) {
+                    if (opponentLikelyObjectives[i][j] > topScores[k]) {
+                        // Décaler les éléments pour insérer
+                        for (int m = 4; m > k; m--) {
+                            topScores[m] = topScores[m-1];
+                            topObjectives[m][0] = topObjectives[m-1][0];
+                            topObjectives[m][1] = topObjectives[m-1][1];
+                        }
+                        // Insérer le nouvel élément
+                        topScores[k] = opponentLikelyObjectives[i][j];
+                        topObjectives[k][0] = i;
+                        topObjectives[k][1] = j;
+                        break;
+                    }
+                }
+                
+                count++;
+                if (count <= 5) {  // Limiter à 5 dans les logs
+                    printf("  %d -> %d: score %d\n", i, j, opponentLikelyObjectives[i][j]);
+                }
             }
         }
-        if (count >= 5) break;
     }
     
-    // Update the global opponent cities of interest for blocking decisions
-    if (from < MAX_CITIES) opponentCitiesOfInterest[from] += 2;
-    if (to < MAX_CITIES) opponentCitiesOfInterest[to] += 2;
+    // Mettre à jour le tableau global des points d'intérêt
+    // Réinitialiser les valeurs pour ne pas qu'elles augmentent indéfiniment
+    for (int i = 0; i < MAX_CITIES; i++) {
+        opponentCitiesOfInterest[i] = 0;
+    }
     
-    // Also update cities that are likely connected to these
-    for (int i = 0; i < state->nbCities && i < MAX_CITIES; i++) {
-        if (i < MAX_CITIES && 
-            ((from < MAX_CITIES && opponentLikelyObjectives[from][i] > threshold) || 
-             (to < MAX_CITIES && opponentLikelyObjectives[to][i] > threshold)) && 
-            opponentCityVisits[i] > 0) {
-            opponentCitiesOfInterest[i] += 1;
+    // Attribuer des points d'intérêt aux villes des objectifs probables
+    for (int i = 0; i < 5; i++) {
+        if (topScores[i] > 0) {
+            int city1 = topObjectives[i][0];
+            int city2 = topObjectives[i][1];
+            if (city1 >= 0 && city1 < MAX_CITIES) {
+                opponentCitiesOfInterest[city1] += (5-i) * 2;  // Plus de points pour les meilleurs
+            }
+            if (city2 >= 0 && city2 < MAX_CITIES) {
+                opponentCitiesOfInterest[city2] += (5-i) * 2;
+            }
+            
+            // Trouver les routes clés pour cet objectif
+            int path[MAX_CITIES];
+            int pathLength = 0;
+            if (findShortestPath(state, city1, city2, path, &pathLength) > 0) {
+                // Identifier les routes critiques sur ce chemin
+                for (int j = 0; j < pathLength - 1; j++) {
+                    int pathFrom = path[j];
+                    int pathTo = path[j+1];
+                    
+                    // Augmenter l'intérêt pour les villes intermédiaires cruciales
+                    if (pathFrom >= 0 && pathFrom < MAX_CITIES) {
+                        opponentCitiesOfInterest[pathFrom] += 1;
+                    }
+                    if (pathTo >= 0 && pathTo < MAX_CITIES) {
+                        opponentCitiesOfInterest[pathTo] += 1;
+                    }
+                }
+            }
         }
     }
 }
@@ -674,205 +897,171 @@ void updateOpponentObjectiveModel(GameState* state, int from, int to) {
  * Identifies critical routes that should be claimed to block the opponent
  * This version is optimized to prevent excessive memory use and logging
  */
-int findCriticalBlockingRoutes(GameState* state, int* blockingRoutes, int* blockingPriorities) {
+// Fonction pour identifier les routes critiques à bloquer
+/**
+ * Fonction pour identifier les routes critiques à bloquer
+ */
+int findCriticalRoutesToBlock(GameState* state, int* routesToBlock, int* blockingPriorities) {
     int count = 0;
-    const int MAX_BLOCKING_ROUTES = 30;  // Reasonable limit
+    const int MAX_BLOCKING_ROUTES = 10;  // Remplacé MAX_ROUTES par MAX_BLOCKING_ROUTES
     
-    // CORRECTION: Vérification des paramètres
-    if (!state || !blockingRoutes || !blockingPriorities) {
-        printf("ERROR: Invalid parameters in findCriticalBlockingRoutes\n");
-        return 0;
-    }
-    
-    // CORRECTION: Initialiser les tableaux pour éviter les valeurs aléatoires
+    // Initialiser
     for (int i = 0; i < MAX_BLOCKING_ROUTES; i++) {
-        blockingRoutes[i] = -1;
+        routesToBlock[i] = -1;
         blockingPriorities[i] = 0;
     }
     
-    // CORRECTION: Vérification des limites du nombre de voies
-    int nbTracksToCheck = state->nbTracks;
-    if (nbTracksToCheck <= 0 || nbTracksToCheck > 150) {
-        printf("WARNING: Invalid number of tracks: %d, limiting to 150\n", nbTracksToCheck);
-        nbTracksToCheck = (nbTracksToCheck <= 0) ? 0 : 150;
-    }
+    // Analyse des objectifs probables de l'adversaire (basée sur updateOpponentObjectiveModel)
+    int topObjectives[5][2] = {{-1, -1}, {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1}};
+    int topScores[5] = {0};
     
-    // For each unclaimed route
-    for (int i = 0; i < nbTracksToCheck && count < MAX_BLOCKING_ROUTES; i++) {
-        // Vérifier que l'index de la route est valide
-        if (i < 0 || i >= state->nbTracks) {
-            printf("WARNING: Invalid track index: %d in findCriticalBlockingRoutes\n", i);
-            continue;
-        }
-        
-        if (state->routes[i].owner == 0) {
-            int from = state->routes[i].from;
-            int to = state->routes[i].to;
-            
-            // CORRECTION: Vérification des limites des villes
-            if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-                printf("WARNING: Invalid cities in route %d: from %d to %d\n", i, from, to);
-                continue;
-            }
-            
-            // Skip if we don't have enough wagons
-            if (state->routes[i].length > state->wagonsLeft) {
-                continue;
-            }
-            
-            // CORRECTION: Vérification des limites pour l'accès au tableau opponentCitiesOfInterest
-            int fromInterest = (from < MAX_CITIES) ? opponentCitiesOfInterest[from] : 0;
-            int toInterest = (to < MAX_CITIES) ? opponentCitiesOfInterest[to] : 0;
-            
-            int blockingValue = 0;
-            
-            // 1. Route connects cities the opponent seems interested in
-            if (fromInterest > 0 && toInterest > 0) {
-                blockingValue += fromInterest + toInterest;
-            }
-            
-            // 2. Route is a bridge (removing it disconnects parts of the board)
-            // Only check this for a small number of routes to avoid excessive computation
-            if (count < 10 && blockingValue > 0) {
-                bool isBridge = isCriticalBridge(state, from, to);
-                if (isBridge) {
-                    blockingValue += 20;
-                }
-            }
-            
-            // 3. Route is short (2 or less) - these are more contested
-            if (state->routes[i].length <= 2) {
-                blockingValue += 10 - state->routes[i].length * 3;
-            }
-            
-            // 4. Route connects to opponent's existing network
-            if (isConnectedToOpponentNetwork(state, from, to)) {
-                blockingValue += 15;
-            }
-            
-            // 5. Route is likely part of opponent's planned path
-            // SIMPLIFIED: Only check a small sample of paths to reduce computation
-            if (count < 15 && blockingValue > 0) {  // Only do this check for promising routes
-                // Find top 3 city pairs with highest interest
-                int topCityPairs[3][2] = {{-1, -1}, {-1, -1}, {-1, -1}};
-                int topInterest[3] = {0, 0, 0};
-                
-                // CORRECTION: Limiter la recherche pour éviter les temps de calcul excessifs
-                int maxCitiesToCheck = state->nbCities < 20 ? state->nbCities : 20;
-                int citiesChecked = 0;
-                
-                for (int j = 0; j < maxCitiesToCheck && citiesChecked < 10; j++) {
-                    // Vérifier que l'index de la ville est valide
-                    if (j < 0 || j >= state->nbCities) {
-                        continue;
-                    }
+    // Trouver les 5 objectifs les plus probables de l'adversaire
+    for (int i = 0; i < state->nbCities && i < MAX_CITIES; i++) {
+        if (opponentCitiesOfInterest[i] > 0) {
+            for (int j = i+1; j < state->nbCities && j < MAX_CITIES; j++) {
+                if (opponentCitiesOfInterest[j] > 0) {
+                    // Score basé sur l'intérêt combiné
+                    int score = opponentCitiesOfInterest[i] + opponentCitiesOfInterest[j];
                     
-                    // Only check cities with significant interest
-                    int jInterest = (j < MAX_CITIES) ? opponentCitiesOfInterest[j] : 0;
-                    if (jInterest < 2) continue;
-                    citiesChecked++;
-                    
-                    int pairsChecked = 0;
-                    const int MAX_PAIRS_PER_CITY = 5;  // Limit pairs per city
-                    
-                    for (int k = j+1; k < maxCitiesToCheck && pairsChecked < MAX_PAIRS_PER_CITY; k++) {
-                        // Vérifier que l'index de la ville est valide
-                        if (k < 0 || k >= state->nbCities) {
-                            continue;
-                        }
-                        
-                        // Only check cities with significant interest
-                        int kInterest = (k < MAX_CITIES) ? opponentCitiesOfInterest[k] : 0;
-                        if (kInterest < 2) continue;
-                        pairsChecked++;
-                        
-                        // Calculer l'intérêt combiné
-                        int interest = jInterest + kInterest;
-                        
-                        // Check if this pair has more interest than any in our top 3
-                        for (int t = 0; t < 3; t++) {
-                            if (interest > topInterest[t]) {
-                                // Shift everything down
-                                for (int s = 2; s > t; s--) {
-                                    topCityPairs[s][0] = topCityPairs[s-1][0];
-                                    topCityPairs[s][1] = topCityPairs[s-1][1];
-                                    topInterest[s] = topInterest[s-1];
-                                }
-                                
-                                // Insert this pair
-                                topCityPairs[t][0] = j;
-                                topCityPairs[t][1] = k;
-                                topInterest[t] = interest;
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                // Now check if our route is on a path between any of these top interest pairs
-                for (int p = 0; p < 3; p++) {
-                    int cityA = topCityPairs[p][0];
-                    int cityB = topCityPairs[p][1];
-                    
-                    // CORRECTION: Vérifier que les villes sont valides
-                    if (cityA < 0 || cityA >= state->nbCities || cityB < 0 || cityB >= state->nbCities) {
-                        continue;  // Skip invalid pairs
-                    }
-                    
+                    // Vérifier si cet objectif est crédible
                     int path[MAX_CITIES];
                     int pathLength = 0;
-                    
-                    int distance = findShortestPath(state, cityA, cityB, path, &pathLength);
-                    
-                    // CORRECTION: Vérifier que le chemin est valide et ne dépasse pas les limites
-                    if (distance > 0 && pathLength > 0 && pathLength < MAX_CITIES) {
-                        for (int s = 0; s < pathLength - 1; s++) {
-                            // Vérifier que les indices des villes dans le chemin sont valides
-                            if (path[s] < 0 || path[s] >= state->nbCities || 
-                                path[s+1] < 0 || path[s+1] >= state->nbCities) {
-                                continue;
-                            }
+                    if (findShortestPath(state, i, j, path, &pathLength) > 0) {
+                        // Compter combien de routes l'adversaire a déjà sur ce chemin
+                        int opponentRoutes = 0;
+                        for (int k = 0; k < pathLength - 1; k++) {
+                            int cityA = path[k];
+                            int cityB = path[k+1];
                             
-                            if ((path[s] == from && path[s+1] == to) || 
-                                (path[s] == to && path[s+1] == from)) {
-                                blockingValue += 15;
-                                // Only count once
-                                p = 3;  // Exit outer loop
+                            for (int r = 0; r < state->nbTracks; r++) {
+                                if (((state->routes[r].from == cityA && state->routes[r].to == cityB) ||
+                                     (state->routes[r].from == cityB && state->routes[r].to == cityA)) &&
+                                    state->routes[r].owner == 2) {  // Route de l'adversaire
+                                    opponentRoutes++;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Augmenter le score si l'adversaire a déjà des routes sur ce chemin
+                        score += opponentRoutes * 5;
+                        
+                        // Insérer dans notre top 5 si score suffisant
+                        for (int k = 0; k < 5; k++) {
+                            if (score > topScores[k]) {
+                                // Décaler les éléments
+                                for (int m = 4; m > k; m--) {
+                                    topScores[m] = topScores[m-1];
+                                    topObjectives[m][0] = topObjectives[m-1][0];
+                                    topObjectives[m][1] = topObjectives[m-1][1];
+                                }
+                                // Insérer
+                                topScores[k] = score;
+                                topObjectives[k][0] = i;
+                                topObjectives[k][1] = j;
                                 break;
                             }
                         }
                     }
                 }
             }
-            
-            // If this route has good blocking value, add it to our list
-            if (blockingValue > 0) {
-                blockingRoutes[count] = i;
-                blockingPriorities[count] = blockingValue;
+        }
+    }
+    
+    // Pour chaque objectif probable, identifier les routes critiques à bloquer
+    for (int i = 0; i < 5 && topScores[i] > 0; i++) {
+        int from = topObjectives[i][0];
+        int to = topObjectives[i][1];
+        
+        printf("Analyse des routes à bloquer pour l'objectif probable %d -> %d (score: %d)\n", 
+               from, to, topScores[i]);
+        
+        int path[MAX_CITIES];
+        int pathLength = 0;
+        if (findShortestPath(state, from, to, path, &pathLength) > 0) {
+            // Pour chaque segment du chemin
+            for (int j = 0; j < pathLength - 1 && count < MAX_BLOCKING_ROUTES; j++) {
+                int cityA = path[j];
+                int cityB = path[j+1];
                 
-                // Only print a subset of blocking routes to avoid excessive logging
-                if (count < 10 || blockingValue > 10) {
-                    printf("Route %d has blocking value %d\n", i, blockingValue);
-                }
-                
-                count++;
-                
-                if (count >= MAX_BLOCKING_ROUTES) {
-                    printf("WARNING: Maximum blocking routes reached (%d)\n", MAX_BLOCKING_ROUTES);
-                    break;
+                // Trouver la route correspondante
+                for (int r = 0; r < state->nbTracks; r++) {
+                    if (((state->routes[r].from == cityA && state->routes[r].to == cityB) ||
+                         (state->routes[r].from == cityB && state->routes[r].to == cityA)) &&
+                        state->routes[r].owner == 0) {  // Route libre
+                        
+                        // Vérifier s'il existe un chemin alternatif sans cette route
+                        bool isBottleneck = true;
+                        
+                        // Temporairement marquer cette route comme prise par l'adversaire
+                        int originalOwner = state->routes[r].owner;
+                        state->routes[r].owner = 2;  // Simuler que l'adversaire l'a prise
+                        
+                        // Vérifier s'il existe encore un chemin
+                        int altPath[MAX_CITIES];
+                        int altPathLength = 0;
+                        int altDistance = findShortestPath(state, from, to, altPath, &altPathLength);
+                        
+                        // Restaurer l'état original
+                        state->routes[r].owner = originalOwner;
+                        
+                        // Si un chemin alternatif existe, ce n'est pas un bottleneck
+                        if (altDistance > 0) {
+                            isBottleneck = false;
+                        }
+                        
+                        // Si c'est un bottleneck, c'est une route critique à bloquer
+                        if (isBottleneck) {
+                            // Calculer la priorité en fonction de la position dans le chemin et du score de l'objectif
+                            // Réduire l'importance des scores pour éviter des priorités excessives
+                            int priority = topScores[i] * (3-i);  // Réduire le multiplicateur de 5-i à 3-i
+                            
+                            // Bonus pour les routes courtes (plus faciles à prendre)
+                            if (state->routes[r].length <= 2) {
+                                priority += 10;  // Réduire de 20 à 10
+                            }
+                            
+                            // Bonus si c'est près du début du chemin (plus stratégique)
+                            if (j <= 1 || j >= pathLength - 2) {
+                                priority += 10;  // Réduire de 15 à 10
+                            }
+                            
+                            printf("Route critique à bloquer: %d -> %d (priorité: %d)\n", 
+                                   cityA, cityB, priority);
+                            
+                            // Ajouter à notre liste de routes à bloquer
+                            routesToBlock[count] = r;
+                            blockingPriorities[count] = priority;
+                            count++;
+                            
+                            // Eviter les doublons
+                            break;
+                        }
+                    }
                 }
             }
         }
     }
     
-    // Set sentinel value
-    if (count < MAX_BLOCKING_ROUTES) {
-        blockingRoutes[count] = -1; // Null terminator for safety
+    // Trier les routes par priorité (tri à bulles simple)
+    for (int i = 0; i < count - 1; i++) {
+        for (int j = 0; j < count - i - 1; j++) {
+            if (blockingPriorities[j] < blockingPriorities[j+1]) {
+                // Swap routes
+                int tempRoute = routesToBlock[j];
+                routesToBlock[j] = routesToBlock[j+1];
+                routesToBlock[j+1] = tempRoute;
+                
+                // Swap priorities
+                int tempPriority = blockingPriorities[j];
+                blockingPriorities[j] = blockingPriorities[j+1];
+                blockingPriorities[j+1] = tempPriority;
+            }
+        }
     }
     
     return count;
 }
-
 /**
  * Checks if a route forms a critical bridge in the network
  */
@@ -957,10 +1146,11 @@ bool isConnectedToOpponentNetwork(GameState* state, int city1, int city2) {
 /**
  * Improved objective evaluation that considers early-game planning
  */
+/**
+ * Fonction améliorée pour choisir les objectifs de manière plus intelligente
+ */
 void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* chooseObjectives) {
-    // Cette fonction améliore la sélection des objectifs en analysant leur faisabilité
-    
-    printf("Advanced objective evaluation:\n");
+    printf("Évaluation avancée des objectifs\n");
     
     // Vérification des paramètres
     if (!state || !objectives || !chooseObjectives) {
@@ -973,49 +1163,57 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
         chooseObjectives[i] = false;
     }
     
-    // Score array for ranking objectives
+    // DÉTECTION SPÉCIALE premier tour - au moins 2 objectifs requis
+    bool isFirstTurn = (state->nbObjectives == 0 && state->nbClaimedRoutes == 0);
+    
+    if (isFirstTurn) {
+        printf("PREMIER TOUR: Au moins 2 objectifs doivent être sélectionnés\n");
+    }
+    
+    // Scores pour chaque objectif
     float scores[3];
     
-    // Analysis of each objective
+    // Analyser chaque objectif
     for (int i = 0; i < 3; i++) {
         int from = objectives[i].from;
         int to = objectives[i].to;
         int value = objectives[i].score;
         
-        // Safety check - ensure the cities are within bounds
+        // Vérification des limites
         if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-            printf("Objective %d: Invalid cities - From %d to %d, score %d\n", i+1, from, to, value);
-            scores[i] = -1000; // Invalid objective
+            printf("Objectif %d: Villes invalides - De %d à %d, score %d\n", i+1, from, to, value);
+            scores[i] = -1000;  // Objectif invalide
             continue;
         }
         
-        printf("Objective %d: From %d to %d, score %d\n", i+1, from, to, value);
+        printf("Objectif %d: De %d à %d, score %d\n", i+1, from, to, value);
         
-        // Find optimal path for this objective
+        // Trouver chemin optimal
         int path[MAX_CITIES];
         int pathLength = 0;
         int distance = findShortestPath(state, from, to, path, &pathLength);
         
         if (distance < 0) {
-            // No path found - impossible objective
+            // Aucun chemin trouvé - objectif impossible
             scores[i] = -1000;
-            printf("  - No path available, objective impossible\n");
+            printf("  - Aucun chemin disponible, objectif impossible\n");
             continue;
         }
         
-        // AJOUT: Pénaliser les objectifs avec des chemins très longs
-        if (distance > 15) {
-            printf("  - WARNING: Very long path (%d) for this objective\n", distance);
-            scores[i] = -500;  // Forte pénalité pour les objectifs très difficiles
+        // Pénalité massive pour les chemins trop longs
+        if (distance > 10) {
+            printf("  - ATTENTION: Chemin très long (%d) pour cet objectif\n", distance);
+            scores[i] = -1000;  // Pénalité rédhibitoire
             continue;
         }
         
-        // Analyze path complexity
+        // Analyser la complexité du chemin
         int routesNeeded = 0;
         int routesOwnedByUs = 0;
         int routesOwnedByOpponent = 0;
         int routesAvailable = 0;
         int totalLength = 0;
+        int routesBlockedByOpponent = 0;
         
         for (int j = 0; j < pathLength - 1 && j < MAX_CITIES - 1; j++) {
             int pathFrom = path[j];
@@ -1024,12 +1222,13 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
             // Vérification des limites
             if (pathFrom < 0 || pathFrom >= state->nbCities || 
                 pathTo < 0 || pathTo >= state->nbCities) {
-                printf("  - WARNING: Invalid cities in path\n");
+                printf("  - ATTENTION: Villes invalides dans le chemin\n");
                 continue;
             }
             
-            // Find route between these cities
+            // Trouver la route entre ces villes
             bool routeFound = false;
+            bool alternativeRouteExists = false;
             
             for (int k = 0; k < state->nbTracks; k++) {
                 if ((state->routes[k].from == pathFrom && state->routes[k].to == pathTo) ||
@@ -1044,38 +1243,55 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
                         routesOwnedByUs++;
                     } else if (state->routes[k].owner == 2) {
                         routesOwnedByOpponent++;
-                        // Si l'adversaire possède une route, ce chemin est bloqué
-                        printf("  - Path blocked by opponent\n");
-                        scores[i] = -800;
+                        routesBlockedByOpponent++;
                     }
+                }
+                
+                // Vérifier s'il existe des routes alternatives
+                else if (((state->routes[k].from == pathFrom && state->routes[k].to == pathTo) ||
+                         (state->routes[k].from == pathTo && state->routes[k].to == pathFrom)) &&
+                        state->routes[k].owner == 0) {
+                    alternativeRouteExists = true;
                 }
             }
             
+            // Si une route est bloquée mais qu'une alternative existe, ne pas compter comme bloquée
+            if (routesBlockedByOpponent > 0 && alternativeRouteExists) {
+                routesBlockedByOpponent--;
+            }
+            
             if (!routeFound) {
-                // No route between these cities - shouldn't happen if findShortestPath worked
-                scores[i] = -800;
-                printf("  - Error: Path contains non-existent route\n");
+                // Aucune route entre ces villes - ne devrait pas arriver si findShortestPath a fonctionné
+                scores[i] = -1000;
+                printf("  - Erreur: Le chemin contient une route inexistante\n");
             }
         }
         
         routesNeeded = routesAvailable + routesOwnedByUs;
         
-        // If the objective is already blocked by opponent routes, skip it
-        if (scores[i] < -100) {
+        // Si des routes sont bloquées par l'adversaire, pénalité massive
+        if (routesBlockedByOpponent > 0) {
+            int penalty = routesBlockedByOpponent * 50;  // Pénalité extrême
+            scores[i] = -penalty;
+            printf("  - %d routes bloquées par l'adversaire, pénalité: -%d\n", 
+                   routesBlockedByOpponent, penalty);
             continue;
         }
         
-        // Base score: points-to-length ratio
+        // Score de base: rapport points/longueur (bonus pour les objectifs courts à haut score)
         float pointsPerLength = (totalLength > 0) ? (float)value / totalLength : 0;
-        float baseScore = pointsPerLength * 50.0;
+        float baseScore = pointsPerLength * 150.0;  // Augmenté car crucial
         
-        // Completion progress: how many routes we already own
+        // Progrès de complétion: combien de routes nous possédons déjà
         float completionProgress = 0;
         if (routesNeeded > 0) {
             completionProgress = (float)routesOwnedByUs / routesNeeded;
         }
         
-        // Card matching: how many cards we have that match needed routes
+        // Bonus crucial pour les objectifs déjà partiellement complétés
+        float completionBonus = completionProgress * 250.0;  // Bonus très important
+        
+        // Correspondance des cartes: combien nous avons de cartes qui correspondent aux routes nécessaires
         float cardMatchScore = 0;
         int colorMatchCount = 0;
         
@@ -1102,7 +1318,7 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
                             colorMatchCount++;
                         }
                     } else {
-                        // Gray route - check if we have enough of any color
+                        // Route grise - vérifier si nous avons assez de cartes de n'importe quelle couleur
                         for (int c = 1; c < 9; c++) {
                             if (state->nbCardsByColor[c] >= length/2) {
                                 colorMatchCount++;
@@ -1115,95 +1331,94 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
         }
         
         if (routesAvailable > 0) {
-            cardMatchScore = (float)colorMatchCount / routesAvailable * 100.0;
+            cardMatchScore = (float)colorMatchCount / routesAvailable * 120.0;
         }
         
-        // Synergy with other objectives
+        // Synergie avec les objectifs existants
         float synergyScore = 0;
         
-        // Check synergy with other potential objectives
-        for (int j = 0; j < 3; j++) {
-            if (i != j) {
-                int otherFrom = objectives[j].from;
-                int otherTo = objectives[j].to;
+        // Vérifier la synergie avec les objectifs existants
+        for (int j = 0; j < state->nbObjectives; j++) {
+            int objFrom = state->objectives[j].from;
+            int objTo = state->objectives[j].to;
+            
+            // Points communs avec les objectifs existants
+            if (from == objFrom || from == objTo || to == objFrom || to == objTo) {
+                synergyScore += 60;  // Bonus important pour la synergie
+            }
+            
+            // Vérifier les routes communes avec les objectifs existants
+            int objPath[MAX_CITIES];
+            int objPathLength = 0;
+            
+            if (findShortestPath(state, objFrom, objTo, objPath, &objPathLength) >= 0) {
+                int sharedRoutes = 0;
                 
-                // Skip invalid objectives
-                if (otherFrom < 0 || otherFrom >= state->nbCities || 
-                    otherTo < 0 || otherTo >= state->nbCities) {
-                    continue;
-                }
-                
-                // Shared endpoints
-                if (from == otherFrom || from == otherTo || to == otherFrom || to == otherTo) {
-                    synergyScore += 15;
-                }
-                
-                // Shared routes
-                int otherPath[MAX_CITIES];
-                int otherPathLength = 0;
-                
-                if (findShortestPath(state, otherFrom, otherTo, otherPath, &otherPathLength) >= 0) {
-                    int sharedRoutes = 0;
-                    
-                    for (int p1 = 0; p1 < pathLength - 1 && p1 < MAX_CITIES - 1; p1++) {
-                        for (int p2 = 0; p2 < otherPathLength - 1 && p2 < MAX_CITIES - 1; p2++) {
-                            if ((path[p1] == otherPath[p2] && path[p1+1] == otherPath[p2+1]) ||
-                                (path[p1] == otherPath[p2+1] && path[p1+1] == otherPath[p2])) {
-                                sharedRoutes++;
-                            }
+                for (int p1 = 0; p1 < pathLength - 1 && p1 < MAX_CITIES - 1; p1++) {
+                    for (int p2 = 0; p2 < objPathLength - 1 && p2 < MAX_CITIES - 1; p2++) {
+                        if ((path[p1] == objPath[p2] && path[p1+1] == objPath[p2+1]) ||
+                            (path[p1] == objPath[p2+1] && path[p1+1] == objPath[p2])) {
+                            sharedRoutes++;
                         }
                     }
-                    
-                    synergyScore += sharedRoutes * 10;
                 }
+                
+                synergyScore += sharedRoutes * 30;  // Bonus très important
             }
         }
         
-        // Competition with opponent (risk assessment)
+        // Pénalité pour la compétition avec l'adversaire
         float competitionPenalty = 0;
         
         for (int j = 0; j < pathLength - 1 && j < MAX_CITIES - 1; j++) {
             int pathFrom = path[j];
             int pathTo = path[j+1];
             
-            // Check if opponent is active near these cities (with bounds checking)
+            // Vérifier si l'adversaire est actif près de ces villes
             if (pathFrom < MAX_CITIES && pathTo < MAX_CITIES && 
                 (opponentCitiesOfInterest[pathFrom] > 0 || opponentCitiesOfInterest[pathTo] > 0)) {
-                // Calculate penalty safely
+                // Calculer la pénalité
                 int fromPenalty = (pathFrom < MAX_CITIES) ? opponentCitiesOfInterest[pathFrom] : 0;
                 int toPenalty = (pathTo < MAX_CITIES) ? opponentCitiesOfInterest[pathTo] : 0;
-                competitionPenalty += (fromPenalty + toPenalty) * 2;
+                competitionPenalty += (fromPenalty + toPenalty) * 5;
             }
         }
         
-        // Difficulty penalty: harder objectives have lower scores
+        // Pénalité pour la difficulté: les objectifs difficiles ont des scores plus bas
         float difficultyPenalty = 0;
-        if (routesNeeded > 5) {
-            difficultyPenalty = (routesNeeded - 5) * 10;
+        if (routesNeeded > 4) {  // Seuil de difficulté
+            difficultyPenalty = (routesNeeded - 3) * 40;
         }
         
-        // AJOUT: Pénalité pour les objectifs avec des chemins longs
+        // Pénalité pour les chemins longs
         float lengthPenalty = 0;
-        if (distance > 10) {
-            lengthPenalty = (distance - 10) * 8;
+        if (distance > 6) {  // Seuil de longueur
+            lengthPenalty = (distance - 6) * 30;
         }
         
-        // Calculate final score with the new length penalty
-        scores[i] = baseScore + (completionProgress * 100) + cardMatchScore + synergyScore 
+        // Bonus pour les objectifs à haute valeur
+        float valueBonus = 0;
+        if (value > 10) {
+            valueBonus = (value - 10) * 10;
+        }
+        
+        // Calcul du score final avec tous les composants
+        scores[i] = baseScore + completionBonus + cardMatchScore + synergyScore + valueBonus
                   - competitionPenalty - difficultyPenalty - lengthPenalty;
         
-        // Log components for debugging
-        printf("  - Base score (points/length): %.1f\n", baseScore);
-        printf("  - Completion: %.1f%%\n", completionProgress * 100);
-        printf("  - Card matching: %.1f\n", cardMatchScore);
-        printf("  - Synergy: %.1f\n", synergyScore);
-        printf("  - Competition: -%.1f\n", competitionPenalty);
-        printf("  - Difficulty: -%.1f\n", difficultyPenalty);
-        printf("  - Length penalty: -%.1f\n", lengthPenalty);
-        printf("  - FINAL SCORE: %.1f\n", scores[i]);
+        // Log des composants pour le débogage
+        printf("  - Score de base (points/longueur): %.1f\n", baseScore);
+        printf("  - Bonus de complétion: %.1f\n", completionBonus);
+        printf("  - Correspondance des cartes: %.1f\n", cardMatchScore);
+        printf("  - Synergie: %.1f\n", synergyScore);
+        printf("  - Bonus de valeur: %.1f\n", valueBonus);
+        printf("  - Compétition: -%.1f\n", competitionPenalty);
+        printf("  - Difficulté: -%.1f\n", difficultyPenalty);
+        printf("  - Pénalité de longueur: -%.1f\n", lengthPenalty);
+        printf("  - SCORE FINAL: %.1f\n", scores[i]);
     }
     
-    // Sort objectives by score
+    // Trier les objectifs par score
     int sortedIndices[3] = {0, 1, 2};
     for (int i = 0; i < 2; i++) {
         for (int j = 0; j < 2 - i; j++) {
@@ -1215,109 +1430,147 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
         }
     }
     
-    // Selection logic based on game phase
-    int phase = determineGamePhase(state);
+    // STRATÉGIE FINALE DE SÉLECTION
+    
     int numToChoose = 0;
     
-    // Take the highest scoring objective if it's reasonable
-    if (scores[sortedIndices[0]] > -100) {  // MODIFICATION: Accepter même les objectifs moins bien notés
-        chooseObjectives[sortedIndices[0]] = true;
-        numToChoose++;
-    }
-    
-    // Adaptive selection based on game phase
-    if (phase == PHASE_EARLY) {
-        // Early game: more aggressive with taking objectives
-        if (scores[sortedIndices[1]] > 30) {
-            chooseObjectives[sortedIndices[1]] = true;
-            numToChoose++;
-        }
-        
-        if (scores[sortedIndices[2]] > 60) {
-            chooseObjectives[sortedIndices[2]] = true;
-            numToChoose++;
-        }
-    } 
-    else if (phase == PHASE_MIDDLE) {
-        // Middle game: balanced approach
-        if (scores[sortedIndices[1]] > 80) {
-            chooseObjectives[sortedIndices[1]] = true;
-            numToChoose++;
-        }
-    }
-    else {
-        // Late game: conservative, take only high-value objectives
-        if (scores[sortedIndices[1]] > 150) {
-            chooseObjectives[sortedIndices[1]] = true;
-            numToChoose++;
-        }
-    }
-    
-    // CORRECTION: Forcer à prendre au moins un objectif, peu importe le score
-    if (numToChoose == 0) {
-        chooseObjectives[sortedIndices[0]] = true;
-        numToChoose = 1;
-        printf("FORCING selection of objective %d even with low score %.1f\n", 
-              sortedIndices[0] + 1, scores[sortedIndices[0]]);
-    }
-    
-    // MODIFICATION: Être plus sélectif avec les objectifs
-    // Ne pas prendre plus de 3 objectifs, surtout si certains sont difficiles
-    int totalChosenObjectives = state->nbObjectives;  // Objectifs déjà choisis
-    int maxAdditionalObjectives = 3 - totalChosenObjectives;
-    
-    if (maxAdditionalObjectives <= 0) {
-        // Déjà trop d'objectifs, n'en prendre qu'un seul si très attractif
-        if (scores[sortedIndices[0]] > 100) {
-            // Garder uniquement le meilleur
-            chooseObjectives[sortedIndices[0]] = true;
-            chooseObjectives[sortedIndices[1]] = false;
-            chooseObjectives[sortedIndices[2]] = false;
-            numToChoose = 1;
-        } else {
-            // On doit quand même prendre au moins un objectif
-            chooseObjectives[sortedIndices[0]] = true;
-            chooseObjectives[sortedIndices[1]] = false;
-            chooseObjectives[sortedIndices[2]] = false;
-            numToChoose = 1;
-        }
-    } else {
-        // Prendre au maximum maxAdditionalObjectives
-        if (numToChoose > maxAdditionalObjectives) {
-            // Garder uniquement les meilleurs
-            for (int i = maxAdditionalObjectives; i < 3; i++) {
-                if (i < numToChoose) {
-                    int indexToRemove = sortedIndices[i];
-                    chooseObjectives[indexToRemove] = false;
-                }
-            }
-            numToChoose = maxAdditionalObjectives;
-        }
-    }
-    
-    // VÉRIFICATION FINALE: S'assurer qu'au moins un objectif est sélectionné
-    bool anySelected = false;
-    for (int i = 0; i < 3; i++) {
-        if (chooseObjectives[i]) {
-            anySelected = true;
-            break;
-        }
-    }
-    
-    if (!anySelected) {
-        // Si aucun objectif n'est sélectionné, forcer la sélection du premier
-        chooseObjectives[0] = true;
-        numToChoose = 1;
-        printf("EMERGENCY FIX: No objectives were selected! Forcing selection of objective 1\n");
-    }
-    
-    printf("Choosing %d objectives: ", numToChoose);
-    for (int i = 0; i < 3; i++) {
-        if (chooseObjectives[i]) {
-            printf("%d ", i+1);
-        }
-    }
-    printf("\n");
+    /// Règle spéciale pour le premier tour
+   if (isFirstTurn) {
+       // Exigence du serveur: au moins 2 objectifs au premier tour
+       chooseObjectives[sortedIndices[0]] = true;
+       chooseObjectives[sortedIndices[1]] = true;
+       numToChoose = 2;
+       
+       // Prendre le troisième objectif seulement s'il a un bon score (pas de score négatif)
+       if (scores[sortedIndices[2]] > 0) {
+           chooseObjectives[sortedIndices[2]] = true;
+           numToChoose = 3;
+       }
+   }
+   else {
+       // Stratégie pour les tours suivants
+       int phase = determineGamePhase(state);
+       int currentObjectiveCount = state->nbObjectives;
+       
+       // Toujours prendre le meilleur objectif s'il n'est pas catastrophique
+       if (scores[sortedIndices[0]] > -500) {
+           chooseObjectives[sortedIndices[0]] = true;
+           numToChoose++;
+       }
+       
+       // La sélection des objectifs supplémentaires dépend de la phase et des objectifs actuels
+       if (phase == PHASE_EARLY) {
+           // Début de partie: plus agressif sur la prise d'objectifs
+           if (currentObjectiveCount < 2) {
+               // Si nous avons peu d'objectifs, on peut en prendre un second s'il est bon
+               if (scores[sortedIndices[1]] > 100) {
+                   chooseObjectives[sortedIndices[1]] = true;
+                   numToChoose++;
+               }
+               
+               // Un troisième seulement s'il est excellent
+               if (scores[sortedIndices[2]] > 150) {
+                   chooseObjectives[sortedIndices[2]] = true;
+                   numToChoose++;
+               }
+           } else if (currentObjectiveCount < 3) {
+               // Si nous avons déjà 2 objectifs, être sélectif pour le troisième
+               if (scores[sortedIndices[1]] > 120) {
+                   chooseObjectives[sortedIndices[1]] = true;
+                   numToChoose++;
+               }
+           }
+           // Si déjà 3+ objectifs, n'en prendre qu'un seul de plus et uniquement s'il est excellent
+           else if (scores[sortedIndices[1]] > 200) {
+               chooseObjectives[sortedIndices[1]] = true;
+               numToChoose++;
+           }
+       }
+       else if (phase == PHASE_MIDDLE) {
+           // Milieu de partie: plus sélectif
+           if (currentObjectiveCount < 3) {
+               if (scores[sortedIndices[1]] > 150) {
+                   chooseObjectives[sortedIndices[1]] = true;
+                   numToChoose++;
+               }
+           }
+           // Si déjà 3+ objectifs, extrêmement sélectif
+           else if (scores[sortedIndices[1]] > 250) {
+               chooseObjectives[sortedIndices[1]] = true;
+               numToChoose++;
+           }
+       }
+       else {
+           // Fin de partie: ultra-sélectif
+           // Ne prendre un second objectif que s'il est vraiment exceptionnel
+           if (scores[sortedIndices[1]] > 300) {
+               chooseObjectives[sortedIndices[1]] = true;
+               numToChoose++;
+           }
+       }
+       
+       // LIMITATION DU NOMBRE TOTAL D'OBJECTIFS
+       int maxTotalObjectives = 3 + (phase == PHASE_EARLY ? 1 : 0);  // Plus permissif en début de partie
+       if (currentObjectiveCount + numToChoose > maxTotalObjectives) {
+           // Réduire pour respecter la limite
+           int maxNewObjectives = maxTotalObjectives - currentObjectiveCount;
+           if (maxNewObjectives <= 0) {
+               // Déjà atteint ou dépassé la limite, ne garder que le meilleur
+               for (int i = 1; i < 3; i++) {
+                   chooseObjectives[sortedIndices[i]] = false;
+               }
+               numToChoose = 1;
+           } else {
+               // Garder uniquement les N meilleurs pour respecter la limite
+               for (int i = maxNewObjectives; i < 3; i++) {
+                   chooseObjectives[sortedIndices[i]] = false;
+               }
+               numToChoose = maxNewObjectives;
+           }
+       }
+   }
+   
+   // VÉRIFICATION: Au moins un objectif doit être sélectionné
+   bool anySelected = false;
+   for (int i = 0; i < 3; i++) {
+       if (chooseObjectives[i]) {
+           anySelected = true;
+           break;
+       }
+   }
+   
+   if (!anySelected) {
+       // Si aucun objectif n'est sélectionné, forcer la sélection du premier
+       chooseObjectives[0] = true;
+       numToChoose = 1;
+       printf("CORRECTION D'URGENCE: Aucun objectif sélectionné! Sélection forcée de l'objectif 1\n");
+   }
+   
+   // VÉRIFICATION FINALE POUR LE PREMIER TOUR: au moins 2 objectifs requis
+   if (isFirstTurn) {
+       int selectedCount = 0;
+       for (int i = 0; i < 3; i++) {
+           if (chooseObjectives[i]) {
+               selectedCount++;
+           }
+       }
+       
+       if (selectedCount < 2) {
+           printf("CORRECTION PREMIER TOUR: Moins de 2 objectifs sélectionnés, forcé à 2\n");
+           // Assurer que les deux meilleurs sont choisis
+           chooseObjectives[sortedIndices[0]] = true;
+           chooseObjectives[sortedIndices[1]] = true;
+           numToChoose = 2;
+       }
+   }
+   
+   printf("Choix de %d objectifs: ", numToChoose);
+   for (int i = 0; i < 3; i++) {
+       if (chooseObjectives[i]) {
+           printf("%d ", i+1);
+       }
+   }
+   printf("\n");
 }
 
 /**
@@ -1388,7 +1641,8 @@ void advancedRoutePrioritization(GameState* state, int* possibleRoutes, CardColo
         blockingPriorities[i] = 0;
     }
     
-    int numBlockingRoutes = findCriticalBlockingRoutes(state, blockingRoutes, blockingPriorities);
+    // CORRECTION: Utiliser findCriticalRoutesToBlock au lieu de findCriticalBlockingRoutes
+    int numBlockingRoutes = findCriticalRoutesToBlock(state, blockingRoutes, blockingPriorities);
 
     // Limit blocking routes to process
     if (numBlockingRoutes > 20) {
@@ -1471,6 +1725,23 @@ void advancedRoutePrioritization(GameState* state, int* possibleRoutes, CardColo
             }
         }
 
+        // Bonus pour l'utilisation efficace des cartes en main
+        CardColor routeColor = state->routes[routeIndex].color;
+        int length = state->routes[routeIndex].length;
+        
+        if (routeColor != LOCOMOTIVE && state->nbCardsByColor[routeColor] >= length) {
+            // Bonus si nous avons assez de cartes pour cette route
+            scores[i] += 50;  // Bonus significatif pour encourager l'utilisation des cartes
+        } else if (routeColor == LOCOMOTIVE) {
+            // Pour les routes grises, vérifier si nous avons assez de cartes de n'importe quelle couleur
+            for (int c = 1; c < 9; c++) {
+                if (state->nbCardsByColor[c] >= length) {
+                    scores[i] += 40;
+                    break;
+                }
+            }
+        }
+
         // Final adjustment: card efficiency
         // Routes that efficiently use our cards get a bonus
         scores[i] += evaluateCardEfficiency(state, routeIndex) * 3;
@@ -1541,674 +1812,693 @@ void advancedRoutePrioritization(GameState* state, int* possibleRoutes, CardColo
 /**
  * Enhanced AI that combines all the improved strategies
  */
+// Amélioration majeure de superAdvancedStrategy
 int superAdvancedStrategy(GameState* state, MoveData* moveData) {
-    printf("Using super advanced strategy\n");
+    printf("Stratégie avancée optimisée en cours d'exécution\n");
     
-    // CORRECTION: Vérification des paramètres
-    if (!state || !moveData) {
-        printf("ERROR: Invalid parameters in superAdvancedStrategy\n");
-        return 0;
-    }
+    // Ajouter un compteur de pioche consécutive
+    static int consecutiveDraws = 0;
     
-    // Determine the current game phase
+    // Analyse de l'état du jeu
     int phase = determineGamePhase(state);
-    printf("Current game phase: %d\n", phase);
+    printf("Phase de jeu actuelle: %d\n", phase);
     
-    // Increment turn counter
+    // Incrémenter le compteur de tours
     state->turnCount++;
     
-    // AJOUT: Analyser l'état des chemins pour les objectifs
-    checkObjectivesPaths(state);
+    // 1. ANALYSE DES OBJECTIFS ACTUELS
+    int completedObjectives = 0;
+    int incompleteObjectives = 0;
+    int totalObjectiveValue = 0;
+    int incompleteObjectiveValue = 0;
     
-    // AJOUT: Afficher la matrice de connectivité pour le débogage
-    printConnectivityMatrix(state);
-    
-    // Find possible routes
-    int possibleRoutes[MAX_ROUTES] = {0};
-    CardColor possibleColors[MAX_ROUTES] = {0};
-    int possibleLocomotives[MAX_ROUTES] = {0};
-    
-    // CORRECTION: Initialiser à -1 pour identifier les routes invalides
-    for (int i = 0; i < MAX_ROUTES; i++) {
-        possibleRoutes[i] = -1;
+    for (int i = 0; i < state->nbObjectives; i++) {
+        if (isObjectiveCompleted(state, state->objectives[i])) {
+            completedObjectives++;
+            totalObjectiveValue += state->objectives[i].score;
+        } else {
+            incompleteObjectives++;
+            totalObjectiveValue += state->objectives[i].score;
+            incompleteObjectiveValue += state->objectives[i].score;
+        }
     }
     
-    // Trouver les routes possibles
-    int numPossibleRoutes = findPossibleRoutes(state, possibleRoutes, possibleColors, possibleLocomotives);
-    printf("Found %d possible routes to claim\n", numPossibleRoutes);
+    printf("Objectifs: %d complétés, %d incomplets, valeur totale: %d, valeur restante: %d\n",
+          completedObjectives, incompleteObjectives, totalObjectiveValue, incompleteObjectiveValue);
     
-    // Safety check - don't exceed array bounds
-    if (numPossibleRoutes > MAX_ROUTES - 1) {
-        printf("WARNING: Too many possible routes (%d), limiting to %d\n", 
-              numPossibleRoutes, MAX_ROUTES - 1);
-        numPossibleRoutes = MAX_ROUTES - 1;
+    // Phase d'accumulation - si début de partie et pas assez de cartes pour routes longues
+    int totalCards = 0;
+    for (int i = 1; i < 10; i++) {
+        totalCards += state->nbCardsByColor[i];
     }
     
-    // CORRECTION: Vérifier que nous avons des objectifs
+    // Calculer des statistiques sur nos cartes
+    int maxSameColorCards = 0;
+    int colorWithMostCards = 0;
+    for (int c = 1; c < 9; c++) {  // Hors locomotives
+        if (state->nbCardsByColor[c] > maxSameColorCards) {
+            maxSameColorCards = state->nbCardsByColor[c];
+            colorWithMostCards = c;
+        }
+    }
+    
+    // 2. DÉTERMINER LA PRIORITÉ STRATÉGIQUE
+    // Options: COMPLETE_OBJECTIVES, BLOCK_OPPONENT, BUILD_NETWORK, DRAW_CARDS
+    enum StrategicPriority { COMPLETE_OBJECTIVES, BLOCK_OPPONENT, BUILD_NETWORK, DRAW_CARDS };
+    enum StrategicPriority priority = COMPLETE_OBJECTIVES;  // Par défaut
+    
+    // 2.1 Cas spécial: Premier tour, nous devons piocher des objectifs si nous n'en avons pas
     if (state->nbObjectives == 0) {
         moveData->action = DRAW_OBJECTIVES;
-        printf("Strategy decided: draw new objectives (we have none)\n");
+        printf("Priorité: PIOCHER DES OBJECTIFS (premier tour)\n");
         return 1;
     }
     
-    // Check objective completion status
-    int completedObjectives = 0;
-    int totalObjectiveScore = 0;
-    for (int i = 0; i < state->nbObjectives; i++) {
-        // Vérifier que l'objectif est valide
-        if (state->objectives[i].from < 0 || state->objectives[i].from >= state->nbCities ||
-            state->objectives[i].to < 0 || state->objectives[i].to >= state->nbCities) {
-            printf("WARNING: Invalid objective %d: from %d to %d\n", i, 
-                  state->objectives[i].from, state->objectives[i].to);
-            continue;
-        }
-        
-        totalObjectiveScore += state->objectives[i].score;
-        if (isObjectiveCompleted(state, state->objectives[i])) {
-            completedObjectives++;
+    // Stratégie spéciale d'accumulation en début de partie
+    if (phase == PHASE_EARLY && state->turnCount < 10 && totalCards < 8) {
+        priority = DRAW_CARDS;
+        printf("Priorité: ACCUMULER DES CARTES (phase initiale, seulement %d cartes)\n", totalCards);
+    }
+    // Si nous sommes en fin de partie et qu'il reste peu de wagons, prioriser les objectifs incomplets
+    else if ((phase == PHASE_LATE || phase == PHASE_FINAL || state->wagonsLeft < 20) && incompleteObjectives > 0) {
+        priority = COMPLETE_OBJECTIVES;
+        printf("URGENCE FIN DE PARTIE: Prioriser complétion des %d objectifs incomplets!\n", 
+              incompleteObjectives);
+    }
+    // Si l'adversaire est proche de finir (dernier tour)
+    else if (state->lastTurn) {
+        printf("DERNIER TOUR: Utiliser nos ressources restantes!\n");
+        // Priorité à la prise de routes
+        priority = BUILD_NETWORK;
+    }
+    // Analyse complète de l'urgence de complétion des objectifs en fin de partie
+    else if (phase == PHASE_LATE || phase == PHASE_FINAL) {
+        // Vérifier si nous sommes proches de compléter un objectif
+        for (int i = 0; i < state->nbObjectives; i++) {
+            if (!isObjectiveCompleted(state, state->objectives[i])) {
+                int remainingRoutes = countRemainingRoutesForObjective(state, i);
+                
+                // Si nous sommes très proches de compléter un objectif, priorité absolue!
+                if (remainingRoutes >= 0 && remainingRoutes <= 2) {
+                    priority = COMPLETE_OBJECTIVES;
+                    printf("URGENCE: Objectif %d proche de la complétion en fin de partie! (reste %d routes)\n", 
+                          i+1, remainingRoutes);
+                    break;
+                }
+            }
         }
     }
-    int incompleteObjectives = state->nbObjectives - completedObjectives;
-    
-    printf("Objectives: %d completed, %d incomplete, total score: %d\n",
-          completedObjectives, incompleteObjectives, totalObjectiveScore);
-    
-    // AJOUT: Vérifier si un objectif n'a besoin que d'une seule route pour être complété
-    bool objectiveNearlyCompleted = false;
-    int nearlyCompletedObjective = -1;
-    int routeForNearlyCompletedObjective = -1;
-
-    for (int i = 0; i < state->nbObjectives; i++) {
-        if (!isObjectiveCompleted(state, state->objectives[i])) {
-            int objFrom = state->objectives[i].from;
-            int objTo = state->objectives[i].to;
+    // Si nous avons des objectifs incomplets avec une grande valeur, priorité absolue
+    else if (incompleteObjectiveValue > 15 && phase >= PHASE_MIDDLE) {
+        priority = COMPLETE_OBJECTIVES;
+        printf("PRIORITÉ CRITIQUE: Objectifs incomplets de grande valeur (%d points) en phase %d\n", 
+               incompleteObjectiveValue, phase);
+    }
+    // 2.2 Déterminer la priorité en fonction de la phase et des objectifs (si pas déjà décidé)
+    else if (incompleteObjectives == 0) {
+        // Si tous nos objectifs sont complétés, en piocher de nouveaux (seulement si pas trop)
+        if (state->nbObjectives < 3) {
+            moveData->action = DRAW_OBJECTIVES;
+            printf("Priorité: PIOCHER DES OBJECTIFS (tous complétés)\n");
+            return 1;
+        } else {
+            // Sinon, focus sur la construction de routes longues
+            priority = BUILD_NETWORK;
+            printf("Tous objectifs complétés: Prioriser les routes longues\n");
+        }
+    }
+    else {
+        // Si nous avons des objectifs incomplets, la priorité dépend de la situation
+        // (sauf si déjà décidé ci-dessus)
+        if (priority != COMPLETE_OBJECTIVES && priority != DRAW_CARDS) {
+            // Calculer pourcentage d'objectifs complétés
+            float completionRate = (float)completedObjectives / state->nbObjectives;
             
-            // Skip invalid objectives
-            if (objFrom < 0 || objFrom >= state->nbCities || 
-                objTo < 0 || objTo >= state->nbCities) {
-                continue;
+            if (completionRate > 0.7 && state->nbObjectives <= 3 && phase != PHASE_FINAL) {
+                // Bon taux de complétion, on peut piocher plus d'objectifs
+                moveData->action = DRAW_OBJECTIVES;
+                printf("Priorité: PIOCHER DES OBJECTIFS (bon taux de complétion: %.2f)\n", completionRate);
+                return 1;
             }
-            
-            // Trouver le chemin
-            int path[MAX_CITIES];
-            int pathLength = 0;
-            if (findShortestPath(state, objFrom, objTo, path, &pathLength) > 0) {
-                int missingRoutes = 0;
-                int lastMissingRouteFrom = -1;
-                int lastMissingRouteTo = -1;
+            else if (completionRate < 0.3 && state->wagonsLeft < 30) {
+                // Mauvais taux de complétion avec peu de wagons, il faut se concentrer sur les objectifs
+                priority = COMPLETE_OBJECTIVES;
+                printf("Priorité: COMPLÉTER OBJECTIFS (faible taux de complétion: %.2f)\n", completionRate);
+            }
+            else {
+                // Équilibrer entre complétion d'objectifs et construction de réseau
+                // Vérifier si notre score est supérieur à l'adversaire (estimation)
+                int ourEstimatedScore = calculateScore(state);
+                int estimatedOpponentScore = 0;
                 
-                // Compter les routes manquantes
-                for (int j = 0; j < pathLength - 1 && j < MAX_CITIES - 1; j++) {
-                    int cityA = path[j];
-                    int cityB = path[j+1];
-                    bool routeFound = false;
-                    
-                    // Skip invalid cities
-                    if (cityA < 0 || cityA >= state->nbCities || 
-                        cityB < 0 || cityB >= state->nbCities) {
-                        continue;
-                    }
-                    
-                    // Chercher si nous avons déjà cette route
-                    for (int k = 0; k < state->nbTracks; k++) {
-                        if (((state->routes[k].from == cityA && state->routes[k].to == cityB) ||
-                             (state->routes[k].from == cityB && state->routes[k].to == cityA)) &&
-                            state->routes[k].owner == 1) {  // Route nous appartenant
-                            routeFound = true;
-                            break;
+                // Estimation très grossière du score adverse
+                for (int i = 0; i < state->nbTracks; i++) {
+                    if (state->routes[i].owner == 2) {
+                        int length = state->routes[i].length;
+                        int points = 0;
+                        switch (length) {
+                            case 1: points = 1; break;
+                            case 2: points = 2; break;
+                            case 3: points = 4; break;
+                            case 4: points = 7; break;
+                            case 5: points = 10; break;
+                            case 6: points = 15; break;
+                            default: points = 0;
                         }
-                    }
-                    
-                    if (!routeFound) {
-                        missingRoutes++;
-                        lastMissingRouteFrom = cityA;
-                        lastMissingRouteTo = cityB;
+                        estimatedOpponentScore += points;
                     }
                 }
                 
-                // Si une seule route manque, c'est prioritaire
-                if (missingRoutes == 1) {
-                    printf("PRIORITY: Objective %d needs just one more route to complete!\n", i+1);
-                    objectiveNearlyCompleted = true;
-                    nearlyCompletedObjective = i;
+                // Ajouter estimation des objectifs adverses
+                estimatedOpponentScore += state->opponentObjectiveCount * 8;  // Moyenne très grossière
+                
+                printf("Score estimé: Nous = %d, Adversaire = %d\n", ourEstimatedScore, estimatedOpponentScore);
+                
+                if (ourEstimatedScore < estimatedOpponentScore && phase != PHASE_EARLY) {
+                    // Nous sommes en retard, priorité aux routes longues
+                    priority = BUILD_NETWORK;
+                    printf("Priorité: CONSTRUIRE RÉSEAU (nous sommes en retard)\n");
+                }
+                else if (incompleteObjectiveValue > 20) {
+                    // Valeur élevée des objectifs restants, les compléter
+                    priority = COMPLETE_OBJECTIVES;
+                    printf("Priorité: COMPLÉTER OBJECTIFS (valeur élevée: %d)\n", incompleteObjectiveValue);
+                }
+                else {
+                    // Équilibrer entre les deux
+                    if (maxSameColorCards >= 4) {
+                        // Si nous avons beaucoup de cartes d'une même couleur, essayer de les utiliser
+                        priority = BUILD_NETWORK;
+                        printf("Priorité: CONSTRUIRE RÉSEAU (beaucoup de cartes %s: %d)\n", 
+                              (colorWithMostCards < 10) ? (const char*[]){
+                                  "None", "Purple", "White", "Blue", "Yellow", 
+                                  "Orange", "Black", "Red", "Green", "Locomotive"
+                              }[colorWithMostCards] : "Unknown", 
+                              maxSameColorCards);
+                    } else if (state->turnCount % 3 == 0) {  // Alterner
+                        priority = BUILD_NETWORK;
+                        printf("Priorité: CONSTRUIRE RÉSEAU (alternance)\n");
+                    } else {
+                       priority = COMPLETE_OBJECTIVES;
+                       printf("Priorité: COMPLÉTER OBJECTIFS (alternance)\n");
+                   }
+               }
+           }
+        }
+    }
+   
+    // 3. TROUVER LES ROUTES POSSIBLES
+    int possibleRoutes[MAX_ROUTES] = {-1};
+    CardColor possibleColors[MAX_ROUTES] = {NONE};
+    int possibleLocomotives[MAX_ROUTES] = {0};
+   
+    int numPossibleRoutes = findPossibleRoutes(state, possibleRoutes, possibleColors, possibleLocomotives);
+    printf("Trouvé %d routes possibles à prendre\n", numPossibleRoutes);
+   
+    if (numPossibleRoutes <= 0) {
+        // Aucune route possible, piocher des cartes
+        priority = DRAW_CARDS;
+        printf("Priorité modifiée: PIOCHER DES CARTES (aucune route possible)\n");
+    }
+   
+    // Forcer la prise de route après trop de pioches consécutives
+    if (consecutiveDraws >= 4 && numPossibleRoutes > 0) {
+        printf("FORCE MAJEURE: Trop de pioches consécutives (%d), forcer la prise d'une route\n", consecutiveDraws);
+        priority = BUILD_NETWORK;
+    }
+   
+    // 4. PRENDRE UNE DÉCISION EN FONCTION DE LA PRIORITÉ
+    switch (priority) {
+        case COMPLETE_OBJECTIVES: {
+            // 4.1 FOCUS SUR LA COMPLÉTION DES OBJECTIFS
+            if (numPossibleRoutes > 0) {
+                // 4.1.1 Trouver la meilleure route pour compléter les objectifs
+                int bestRouteIndex = 0;
+                int bestScore = -1;
+               
+                for (int i = 0; i < numPossibleRoutes; i++) {
+                    int routeIndex = possibleRoutes[i];
+                    if (routeIndex < 0 || routeIndex >= state->nbTracks) continue;
+                   
+                    int objectiveScore = calculateObjectiveProgress(state, routeIndex);
+                    int length = state->routes[routeIndex].length;
+                   
+                    // Calculer un score global pour cette route
+                    int routeScore = 0;
+                   
+                    // Si la route aide à compléter un objectif, lui donner beaucoup plus de valeur
+                    if (objectiveScore > 0) {
+                        routeScore += objectiveScore * 5;  // Multiplier par 5 au lieu de 2
+                    }
+                   
+                    // Bonus pour les routes longues (plus de points)
+                    if (length >= 5) {
+                        routeScore += length * 100;  // Bonus massif pour les routes très longues
+                    } 
+                    else if (length >= 4) {
+                        routeScore += length * 50;  // Bonus important pour les routes longues
+                    }
+                    else if (length >= 3) {
+                        routeScore += length * 25;  // Bonus modéré pour les routes moyennes
+                    }
+                   
+                    // Vérifier s'il s'agit d'une connexion directe pour un objectif
+                    int from = state->routes[routeIndex].from;
+                    int to = state->routes[routeIndex].to;
                     
-                    // Chercher cette route parmi les routes possibles
-                    for (int r = 0; r < numPossibleRoutes; r++) {
-                        int routeIndex = possibleRoutes[r];
-                        
-                        if (routeIndex >= 0 && routeIndex < state->nbTracks) {
-                            int from = state->routes[routeIndex].from;
-                            int to = state->routes[routeIndex].to;
-                            
-                            if ((from == lastMissingRouteFrom && to == lastMissingRouteTo) || 
-                                (from == lastMissingRouteTo && to == lastMissingRouteFrom)) {
-                                routeForNearlyCompletedObjective = r;
-                                printf("Found missing route for objective %d: from %d to %d\n",
-                                       i+1, from, to);
+                    for (int j = 0; j < state->nbObjectives; j++) {
+                        if (!isObjectiveCompleted(state, state->objectives[j])) {
+                            if ((state->objectives[j].from == from && state->objectives[j].to == to) ||
+                                (state->objectives[j].from == to && state->objectives[j].to == from)) {
+                                routeScore += 1000; // Priorité absolue
+                                printf("Connexion directe trouvée pour objectif %d! Score +1000\n", j+1);
+                            }
+                        }
+                    }
+                   
+                    if (routeScore > bestScore) {
+                        bestScore = routeScore;
+                        bestRouteIndex = i;
+                    }
+                }
+               
+                // Si la meilleure route a un score acceptable, la prendre
+                // Ne pas prendre de route courte en début/milieu de partie sauf urgence
+                int routeIndex = possibleRoutes[bestRouteIndex];
+                int length = state->routes[routeIndex].length;
+                
+                if (length <= 2 && phase < PHASE_LATE && state->turnCount < 15 && consecutiveDraws < 4 && bestScore < 1000) {
+                    printf("Route trop courte (longueur %d) en phase %d. Mieux vaut piocher que de gaspiller des wagons.\n", 
+                           length, phase);
+                    priority = DRAW_CARDS;
+                    break;
+                }
+                
+                // Seuil minimal - ne pas prendre de routes trop tôt à moins qu'elles soient excellentes
+                if (bestScore < 20 && phase == PHASE_EARLY && consecutiveDraws < 4 && !state->lastTurn) {
+                    printf("Toutes les routes ont un score faible (%d), continuer à piocher\n", bestScore);
+                    priority = DRAW_CARDS;
+                    break;
+                }
+                
+                // Sinon, prendre la meilleure route
+                if (bestScore > -10) {
+                    int from = state->routes[routeIndex].from;
+                    int to = state->routes[routeIndex].to;
+                    CardColor color = possibleColors[bestRouteIndex];
+                    int nbLocomotives = possibleLocomotives[bestRouteIndex];
+                   
+                    moveData->action = CLAIM_ROUTE;
+                    moveData->claimRoute.from = from;
+                    moveData->claimRoute.to = to;
+                    moveData->claimRoute.color = color;
+                    moveData->claimRoute.nbLocomotives = nbLocomotives;
+                   
+                    printf("Décision: Prendre route %d -> %d pour objectifs (score: %d)\n", 
+                         from, to, bestScore);
+                         
+                    // Réinitialiser le compteur de pioches consécutives
+                    consecutiveDraws = 0;
+                    return 1;
+                } else {
+                    // Pas de route intéressante pour les objectifs, piocher des cartes
+                    priority = DRAW_CARDS;
+                    printf("Priorité modifiée: PIOCHER DES CARTES (pas de route utile pour objectifs)\n");
+                }
+            } else {
+                // Pas de route possible, piocher des cartes
+                priority = DRAW_CARDS;
+                printf("Priorité modifiée: PIOCHER DES CARTES (aucune route possible)\n");
+            }
+            break;
+        }
+       
+        case BLOCK_OPPONENT: {
+            // 4.2 FOCUS SUR LE BLOCAGE DE L'ADVERSAIRE
+            if (numPossibleRoutes > 0) {
+                // 4.2.1 Identifier les routes critiques à bloquer
+                int routesToBlock[MAX_ROUTES];
+                int blockingPriorities[MAX_ROUTES];
+               
+                int numRoutesToBlock = findCriticalRoutesToBlock(state, routesToBlock, blockingPriorities);
+                printf("Trouvé %d routes critiques à bloquer\n", numRoutesToBlock);
+               
+                // 4.2.2 Vérifier si l'une des routes à bloquer est parmi les routes possibles
+                int bestBlockingRoute = -1;
+                int bestBlockingScore = -1;
+               
+                for (int i = 0; i < numRoutesToBlock; i++) {
+                    int blockRouteIndex = routesToBlock[i];
+                    if (blockRouteIndex < 0 || blockRouteIndex >= state->nbTracks) continue;
+                   
+                    // Vérifier si nous pouvons prendre cette route
+                    for (int j = 0; j < numPossibleRoutes; j++) {
+                        if (possibleRoutes[j] == blockRouteIndex) {
+                            int score = blockingPriorities[i];
+                            int length = state->routes[blockRouteIndex].length;
+                           
+                            // Bonus pour les routes longues (plus de points)
+                            if (length >= 5) {
+                                score += length * 50;  // Bonus massif pour les routes très longues
+                            } 
+                            else if (length >= 4) {
+                                score += length * 25;  // Bonus important pour les routes longues
+                            }
+                            else if (length >= 3) {
+                                score += length * 10;  // Bonus modéré pour les routes moyennes
+                            }
+                           
+                            if (score > bestBlockingScore) {
+                                bestBlockingScore = score;
+                                bestBlockingRoute = j;
+                            }
+                           
+                            break;
+                        }
+                    }
+                }
+               
+                // 4.2.3 Si nous avons trouvé une route à bloquer, la prendre
+                // Réduire le seuil pour être plus souple
+                if (bestBlockingRoute >= 0 && bestBlockingScore > 20) {
+                    int routeIndex = possibleRoutes[bestBlockingRoute];
+                    int from = state->routes[routeIndex].from;
+                    int to = state->routes[routeIndex].to;
+                    CardColor color = possibleColors[bestBlockingRoute];
+                    int nbLocomotives = possibleLocomotives[bestBlockingRoute];
+                   
+                    moveData->action = CLAIM_ROUTE;
+                    moveData->claimRoute.from = from;
+                    moveData->claimRoute.to = to;
+                    moveData->claimRoute.color = color;
+                    moveData->claimRoute.nbLocomotives = nbLocomotives;
+                   
+                    printf("Décision: BLOQUER route %d -> %d (score: %d)\n", 
+                         from, to, bestBlockingScore);
+                   
+                    // Réinitialiser le compteur de pioches consécutives
+                    consecutiveDraws = 0;
+                    return 1;
+                } else {
+                    // 4.2.4 Si aucune route à bloquer, passer à la construction de réseau
+                    printf("Aucune route critique à bloquer, passer à la construction de réseau\n");
+                    priority = BUILD_NETWORK;
+                    // Continuer à l'itération suivante
+                   
+                    // Si nous avons déjà essayé BUILD_NETWORK, passer directement à DRAW_CARDS
+                    if (priority == BLOCK_OPPONENT) {
+                        priority = DRAW_CARDS;
+                        printf("Priorité modifiée: PIOCHER DES CARTES (pas de blocage possible)\n");
+                    }
+                }
+            } else {
+                // Pas de route possible, piocher des cartes
+                priority = DRAW_CARDS;
+                printf("Priorité modifiée: PIOCHER DES CARTES (aucune route possible)\n");
+            }
+            break;
+        }
+       
+        case BUILD_NETWORK: {
+            // 4.3 FOCUS SUR LA CONSTRUCTION DE RÉSEAU (maximiser les points de route)
+            if (numPossibleRoutes > 0) {
+                // 4.3.1 Privilégier les routes longues pour maximiser les points
+                int bestRouteIndex = -1;
+                int bestScore = -1;
+               
+                for (int i = 0; i < numPossibleRoutes; i++) {
+                    int routeIndex = possibleRoutes[i];
+                    if (routeIndex < 0 || routeIndex >= state->nbTracks) continue;
+                   
+                    int length = state->routes[routeIndex].length;
+                    int score = 0;
+                   
+                    // Table de points modifiée pour fortement favoriser les routes longues
+                    switch (length) {
+                        case 1: score = 1; break;
+                        case 2: score = 5; break;
+                        case 3: score = 20; break;  // Augmenté de 15 à 20
+                        case 4: score = 50; break;  // Augmenté de 35 à 50
+                        case 5: score = 100; break; // Augmenté de 60 à 100
+                        case 6: score = 150; break; // Augmenté de 90 à 150
+                        default: score = 0;
+                    }
+                    
+                    // Ne pas prendre de route courte en début/milieu de partie sauf urgence
+                    if (length <= 2 && phase < PHASE_LATE && state->turnCount < 15 && consecutiveDraws < 4) {
+                        score -= 50; // Forte pénalité pour dissuader les routes courtes en début de partie
+                    }
+                   
+                    // Bonus pour les routes qui connectent à notre réseau existant
+                    int from = state->routes[routeIndex].from;
+                    int to = state->routes[routeIndex].to;
+                    bool connectsToNetwork = false;
+                   
+                    for (int j = 0; j < state->nbClaimedRoutes; j++) {
+                        int claimedRouteIndex = state->claimedRoutes[j];
+                        if (claimedRouteIndex < 0 || claimedRouteIndex >= state->nbTracks) continue;
+                       
+                        if (state->routes[claimedRouteIndex].from == from || 
+                            state->routes[claimedRouteIndex].to == from ||
+                            state->routes[claimedRouteIndex].from == to || 
+                            state->routes[claimedRouteIndex].to == to) {
+                            connectsToNetwork = true;
+                            break;
+                        }
+                    }
+                   
+                    if (connectsToNetwork) {
+                        score += 30;  // Bonus significatif pour la connexion
+                    }
+                    
+                    // Si c'est une connexion directe pour un objectif, la prendre quand même
+                    for (int j = 0; j < state->nbObjectives; j++) {
+                        if (!isObjectiveCompleted(state, state->objectives[j])) {
+                            if ((state->objectives[j].from == from && state->objectives[j].to == to) ||
+                                (state->objectives[j].from == to && state->objectives[j].to == from)) {
+                                score += 1000; // Priorité absolue
+                            }
+                        }
+                    }
+                   
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestRouteIndex = i;
+                    }
+                }
+                
+                // Seuil minimal - ne pas prendre de routes trop tôt à moins qu'elles soient excellentes
+                if (bestScore < 20 && phase == PHASE_EARLY && consecutiveDraws < 4 && !state->lastTurn) {
+                    printf("Toutes les routes ont un score faible (%d), continuer à piocher\n", bestScore);
+                    priority = DRAW_CARDS;
+                    break;
+                }
+               
+                // 4.3.2 Prendre la meilleure route pour le réseau
+                int routeIndex = possibleRoutes[bestRouteIndex];
+                int from = state->routes[routeIndex].from;
+                int to = state->routes[routeIndex].to;
+                CardColor color = possibleColors[bestRouteIndex];
+                int nbLocomotives = possibleLocomotives[bestRouteIndex];
+               
+                moveData->action = CLAIM_ROUTE;
+                moveData->claimRoute.from = from;
+                moveData->claimRoute.to = to;
+                moveData->claimRoute.color = color;
+                moveData->claimRoute.nbLocomotives = nbLocomotives;
+               
+                printf("Décision: Construire réseau, route %d -> %d\n", from, to);
+               
+                // Réinitialiser le compteur de pioches consécutives
+                consecutiveDraws = 0;
+                return 1;
+            } else {
+                // Pas de route possible, piocher des cartes
+                priority = DRAW_CARDS;
+                printf("Priorité modifiée: PIOCHER DES CARTES (aucune route possible)\n");
+            }
+            break;
+        }
+       
+        case DRAW_CARDS: {
+            // 4.4 PIOCHER DES CARTES STRATÉGIQUEMENT
+           
+            // 4.4.1 Analyser nos besoins en cartes pour les objectifs prioritaires
+            int colorNeeds[10] = {0};  // Pour chaque couleur, combien en avons-nous besoin
+            bool needMoreCards = false;
+           
+            // Pour chaque objectif incomplet, analyser les routes nécessaires
+            for (int i = 0; i < state->nbObjectives; i++) {
+                if (isObjectiveCompleted(state, state->objectives[i])) continue;
+               
+                int objFrom = state->objectives[i].from;
+                int objTo = state->objectives[i].to;
+               
+                // Trouver le chemin le plus court
+                int path[MAX_CITIES];
+                int pathLength = 0;
+                if (findShortestPath(state, objFrom, objTo, path, &pathLength) > 0) {
+                    // Pour chaque segment du chemin
+                    for (int j = 0; j < pathLength - 1; j++) {
+                        int cityA = path[j];
+                        int cityB = path[j+1];
+                       
+                        // Trouver la route correspondante
+                        for (int r = 0; r < state->nbTracks; r++) {
+                            if (((state->routes[r].from == cityA && state->routes[r].to == cityB) ||
+                                 (state->routes[r].from == cityB && state->routes[r].to == cityA)) &&
+                                state->routes[r].owner == 0) {  // Route non prise
+                               
+                                CardColor routeColor = state->routes[r].color;
+                                int length = state->routes[r].length;
+                               
+                                // Si c'est une route grise, toutes les couleurs sont possibles
+                                if (routeColor == LOCOMOTIVE) {
+                                    needMoreCards = true;  // Nous voulons plus de cartes pour cette route
+                                } else {
+                                    // Calculer combien il nous manque de cartes de cette couleur
+                                    int have = state->nbCardsByColor[routeColor];
+                                    int needed = length;
+                                    if (have < needed) {
+                                        colorNeeds[routeColor] += (needed - have);
+                                        needMoreCards = true;
+                                    }
+                                }
+                               
                                 break;
                             }
                         }
                     }
-                    
-                    if (routeForNearlyCompletedObjective >= 0) {
-                        break;  // Sortir de la boucle, nous avons trouvé une priorité
-                    } else {
-                        printf("WARNING: Missing route not found among possible routes!\n");
-                        objectiveNearlyCompleted = false;  // Reset if we can't find the route
+                }
+            }
+            
+            // Analyser les routes longues disponibles et leurs couleurs nécessaires
+            for (int i = 0; i < state->nbTracks; i++) {
+                if (state->routes[i].owner == 0 && state->routes[i].length >= 4) {
+                    CardColor routeColor = state->routes[i].color;
+                    if (routeColor != LOCOMOTIVE) {
+                        colorNeeds[routeColor] += state->routes[i].length * 2; // Donner plus de valeur aux couleurs pour routes longues
                     }
                 }
             }
-        }
-    }
-    
-    // Si un objectif n'a besoin que d'une seule route, c'est prioritaire
-    if (objectiveNearlyCompleted && routeForNearlyCompletedObjective >= 0) {
-        // Mettre cette route en première position
-        int tempRoute = possibleRoutes[0];
-        CardColor tempColor = possibleColors[0];
-        int tempLoco = possibleLocomotives[0];
-        
-        possibleRoutes[0] = possibleRoutes[routeForNearlyCompletedObjective];
-        possibleColors[0] = possibleColors[routeForNearlyCompletedObjective];
-        possibleLocomotives[0] = possibleLocomotives[routeForNearlyCompletedObjective];
-        
-        possibleRoutes[routeForNearlyCompletedObjective] = tempRoute;
-        possibleColors[routeForNearlyCompletedObjective] = tempColor;
-        possibleLocomotives[routeForNearlyCompletedObjective] = tempLoco;
-        
-        printf("PRIORITIZED ROUTE for nearly completed objective!\n");
-    }
-    else if (numPossibleRoutes > 0) {
-        // PRIORITIZATION: Routes that help with objectives
-        // First, find the best route for objectives
-        int bestRouteForObjectives = -1;
-        int maxObjectiveProgress = -1;
-        
-        for (int i = 0; i < numPossibleRoutes; i++) {
-            if (possibleRoutes[i] < 0 || possibleRoutes[i] >= state->nbTracks) {
-                continue;  // Skip invalid routes
+           
+            // 4.4.2 Si nous avons déjà assez de cartes, essayer de prendre une route
+            if (!needMoreCards && numPossibleRoutes > 0) {
+                printf("Nous avons déjà assez de cartes, essayer de prendre une route\n");
+                priority = COMPLETE_OBJECTIVES;
+                // Continuer à l'itération suivante
+                break;
             }
-            
-            int progress = calculateObjectiveProgress(state, possibleRoutes[i]);
-            if (progress > maxObjectiveProgress) {
-                maxObjectiveProgress = progress;
-                bestRouteForObjectives = i;
-            }
-        }
-        
-        // If a good route for objectives is found, prioritize it
-        if (bestRouteForObjectives >= 0 && maxObjectiveProgress > 0) {
-            printf("Found route with high objective value (progress: %d)\n", maxObjectiveProgress);
-            
-            // Put this route at the front of the array
-            int tempRoute = possibleRoutes[0];
-            CardColor tempColor = possibleColors[0];
-            int tempLoco = possibleLocomotives[0];
-            
-            possibleRoutes[0] = possibleRoutes[bestRouteForObjectives];
-            possibleColors[0] = possibleColors[bestRouteForObjectives];
-            possibleLocomotives[0] = possibleLocomotives[bestRouteForObjectives];
-            
-            possibleRoutes[bestRouteForObjectives] = tempRoute;
-            possibleColors[bestRouteForObjectives] = tempColor;
-            possibleLocomotives[bestRouteForObjectives] = tempLoco;
-        }
-        
-        // Still use advancedRoutePrioritization for additional sorting
-        advancedRoutePrioritization(state, possibleRoutes, possibleColors, possibleLocomotives, numPossibleRoutes);
-    }
-    
-    // Decision making based on game phase
-    bool shouldClaimRoute = false;
-    
-    // Si nous avons une route prioritaire pour un objectif presque complété
-    if (objectiveNearlyCompleted && routeForNearlyCompletedObjective >= 0 && numPossibleRoutes > 0) {
-        shouldClaimRoute = true;
-        printf("Priority decision: claim route for nearly completed objective!\n");
-    }
-    // EARLY GAME STRATEGY
-    else if (phase == PHASE_EARLY) {
-        // MODIFIED: In early game, prioritize routes that help with objectives
-        
-        // If we have few cards, draw more unless there's a high-value objective route
-        if (state->nbCards < 7 && numPossibleRoutes > 0) {
-            // Make sure the index is valid
-            if (possibleRoutes[0] >= 0 && possibleRoutes[0] < state->nbTracks) {
-                int objectiveProgress = calculateObjectiveProgress(state, possibleRoutes[0]);
-                
-                // Always claim routes that help significantly with objectives
-                if (objectiveProgress > 30) {
-                    shouldClaimRoute = true;
-                    printf("Early game: claiming high-objective-value route (progress: %d)\n", objectiveProgress);
-                } else {
-                    printf("Early game: building hand (only %d cards)\n", state->nbCards);
+           
+            // 4.4.3 Déterminer quelle carte piocher (visible ou aveugle)
+           
+            // D'abord, vérifier s'il y a une locomotive visible
+            for (int i = 0; i < 5; i++) {
+                if (state->visibleCards[i] == LOCOMOTIVE) {
+                    moveData->action = DRAW_CARD;
+                    moveData->drawCard = LOCOMOTIVE;
+                    printf("Décision: Piocher la locomotive visible\n");
+                    // Incrémenter le compteur de pioches consécutives
+                    consecutiveDraws++;
+                    return 1;
                 }
             }
-        }
-        // Claim route if we have enough cards for good routes
-        else if (numPossibleRoutes > 0) {
-            shouldClaimRoute = true;
-            printf("Early game: good card count (%d), claiming route\n", state->nbCards);
-        }
-        
-        // Consider drawing objectives if we have room and don't need to claim a route yet
-        if (state->nbObjectives < 3 && !shouldClaimRoute) {
-            moveData->action = DRAW_OBJECTIVES;
-            printf("Early game: drawing more objectives (only have %d)\n", state->nbObjectives);
-            return 1;
-        }
-    }
-    // MIDDLE GAME STRATEGY
-    else if (phase == PHASE_MIDDLE) {
-        // MODIFIED: In middle game, focus heavily on completing objectives
-        
-        if (numPossibleRoutes > 0) {
-            // Make sure the index is valid
-            if (possibleRoutes[0] >= 0 && possibleRoutes[0] < state->nbTracks) {
-                int objectiveProgress = calculateObjectiveProgress(state, possibleRoutes[0]);
-                
-                // If this route helps with objectives, always take it
-                if (objectiveProgress > 0) {
-                    shouldClaimRoute = true;
-                    printf("Middle game: claiming route for objective progress (%d)\n", objectiveProgress);
+           
+            // Ensuite, chercher une carte visible qui correspond à nos besoins
+            int bestCardIndex = -1;
+            int bestCardValue = 0;
+           
+            for (int i = 0; i < 5; i++) {
+                CardColor card = state->visibleCards[i];
+                if (card == NONE) continue;
+               
+                int value = 0;
+               
+                // Valeur basée sur nos besoins
+                if (colorNeeds[card] > 0) {
+                    value += colorNeeds[card] * 10;
                 }
-                // Otherwise, evaluate other factors
-                else {
-                    int bestRouteUtility = enhancedEvaluateRouteUtility(state, possibleRoutes[0]);
+               
+                // Bonus si nous avons déjà des cartes de cette couleur
+                if (state->nbCardsByColor[card] > 0) {
+                    value += state->nbCardsByColor[card] * 5;
                     
-                    // Check if this route blocks opponent
-                    bool isBlockingRoute = false;
-                    int from = state->routes[possibleRoutes[0]].from;
-                    int to = state->routes[possibleRoutes[0]].to;
-                    
-                    // Vérification des limites
-                    int fromInterest = (from < MAX_CITIES) ? opponentCitiesOfInterest[from] : 0;
-                    int toInterest = (to < MAX_CITIES) ? opponentCitiesOfInterest[to] : 0;
-                    
-                    if (fromInterest + toInterest > 3) {
-                        isBlockingRoute = true;
-                    }
-                    
-                    // Decide whether to claim based on utility or blocking value
-                    if (bestRouteUtility > 30 || isBlockingRoute) {
-                        shouldClaimRoute = true;
-                        if (isBlockingRoute) {
-                            printf("Middle game: blocking opponent's potential route\n");
-                        } else {
-                            printf("Middle game: claiming high-value route\n");
+                    // Bonus important si une carte nous permet de compléter une route
+                    for (int r = 0; r < state->nbTracks; r++) {
+                        if (state->routes[r].owner == 0) {  // Route non prise
+                            CardColor routeColor = state->routes[r].color;
+                            int length = state->routes[r].length;
+                            
+                            // Pour les routes colorées correspondant à notre carte
+                            if (routeColor == card) {
+                                int cardsNeeded = length - state->nbCardsByColor[card];
+                                // Si nous avons presque assez de cartes pour prendre cette route
+                                if (cardsNeeded == 1) {
+                                    value += length * 15; // Bonus très important pour compléter une route
+                                    
+                                    // Bonus supplémentaire pour les routes longues
+                                    if (length >= 4) {
+                                        value += length * 20; // Favoriser les routes longues
+                                    }
+                                }
+                            }
                         }
-                    } else {
-                        printf("Middle game: no valuable routes, drawing cards\n");
                     }
                 }
+               
+                // Éviter d'avoir trop de cartes d'une seule couleur
+                if (state->nbCardsByColor[card] > 8) {
+                    value -= (state->nbCardsByColor[card] - 8) * 5;
+                }
+               
+                if (value > bestCardValue) {
+                    bestCardValue = value;
+                    bestCardIndex = i;
+                }
             }
-        }
-        
-        // If all objectives are complete, consider drawing more (unless in late game)
-        if (incompleteObjectives == 0 && state->nbObjectives < 5 && !shouldClaimRoute) {
-            moveData->action = DRAW_OBJECTIVES;
-            printf("Middle game: all objectives complete, drawing more\n");
+           
+            // Si nous avons trouvé une bonne carte visible, la piocher
+            if (bestCardIndex >= 0 && bestCardValue > 5) {
+                moveData->action = DRAW_CARD;
+                moveData->drawCard = state->visibleCards[bestCardIndex];
+                printf("Décision: Piocher la carte visible %d (valeur: %d)\n", 
+                     moveData->drawCard, bestCardValue);
+                // Incrémenter le compteur de pioches consécutives
+                consecutiveDraws++;
+                return 1;
+            }
+           
+            // Sinon, piocher une carte aveugle
+            moveData->action = DRAW_BLIND_CARD;
+            printf("Décision: Piocher une carte aveugle\n");
+            // Incrémenter le compteur de pioches consécutives
+            consecutiveDraws++;
             return 1;
         }
-    }
-    // LATE GAME STRATEGY
-    else if (phase == PHASE_LATE) {
-        // MODIFIED: In late game, top priority is completing remaining objectives
-        
-        if (numPossibleRoutes > 0) {
-            // Make sure the index is valid
-            if (possibleRoutes[0] >= 0 && possibleRoutes[0] < state->nbTracks) {
-                int objectiveProgress = calculateObjectiveProgress(state, possibleRoutes[0]);
-                int length = state->routes[possibleRoutes[0]].length;
-                
-                // In late game, prioritize completing objectives over long routes
-                if (objectiveProgress > 0) {
-                    shouldClaimRoute = true;
-                    printf("Late game: claiming route for objective progress (%d)\n", objectiveProgress);
-                }
-                // If no objective progress, take long routes for points
-                else if (length >= 4) {
-                    shouldClaimRoute = true;
-                    printf("Late game: claiming long route for points\n");
-                }
-                // Otherwise claim if we have excess cards
-                else if (state->nbCards > 8) {
-                    shouldClaimRoute = true;
-                    printf("Late game: using excess cards to claim route\n");
-                }
-            }
-        }
-    }
-    // FINAL PHASE STRATEGY
-    else if (phase == PHASE_FINAL) {
-        // MODIFIED: In final phase, desperately try to complete objectives
-       if (numPossibleRoutes > 0) {
-           // D'abord, trouver les objectifs les plus proches d'être complétés
-           int bestObjectiveIndex = -1;
-           int leastMissingRoutes = INT_MAX;
-           
-           // Pour chaque objectif non complété
-           for (int i = 0; i < state->nbObjectives; i++) {
-               if (isObjectiveCompleted(state, state->objectives[i])) {
-                   continue;  // Ignorer les objectifs déjà complétés
-               }
-               
-               int objFrom = state->objectives[i].from;
-               int objTo = state->objectives[i].to;
-               
-               // Vérification des limites
-               if (objFrom < 0 || objFrom >= state->nbCities || 
-                   objTo < 0 || objTo >= state->nbCities) {
-                   continue;
-               }
-               
-               // Trouver le chemin
-               int path[MAX_CITIES];
-               int pathLength = 0;
-               if (findShortestPath(state, objFrom, objTo, path, &pathLength) > 0) {
-                   int missingRoutes = 0;
-                   
-                   // Compter les routes manquantes
-                   for (int j = 0; j < pathLength - 1; j++) {
-                       int cityA = path[j];
-                       int cityB = path[j+1];
-                       bool routeFound = false;
-                       
-                       // Vérification des limites
-                       if (cityA < 0 || cityA >= state->nbCities || 
-                           cityB < 0 || cityB >= state->nbCities) {
-                           continue;
-                       }
-                       
-                       // Chercher si nous avons déjà cette route
-                       for (int k = 0; k < state->nbTracks; k++) {
-                           if (((state->routes[k].from == cityA && state->routes[k].to == cityB) ||
-                                (state->routes[k].from == cityB && state->routes[k].to == cityA)) &&
-                               state->routes[k].owner == 1) {  // Route nous appartenant
-                               routeFound = true;
-                               break;
-                           }
-                       }
-                       
-                       if (!routeFound) {
-                           missingRoutes++;
-                       }
-                   }
-                   
-                   // Si cet objectif est plus proche d'être complété
-                   if (missingRoutes < leastMissingRoutes && missingRoutes > 0) {
-                       leastMissingRoutes = missingRoutes;
-                       bestObjectiveIndex = i;
-                   }
-               }
-           }
-           
-           // Si nous avons trouvé un objectif proche d'être complété
-           if (bestObjectiveIndex >= 0 && leastMissingRoutes <= 2) {  // Au plus 2 routes manquantes
-               int objFrom = state->objectives[bestObjectiveIndex].from;
-               int objTo = state->objectives[bestObjectiveIndex].to;
-               int objScore = state->objectives[bestObjectiveIndex].score;
-               
-               printf("Final phase: prioritizing objective %d (from %d to %d, score %d) with only %d missing routes\n",
-                      bestObjectiveIndex + 1, objFrom, objTo, objScore, leastMissingRoutes);
-               
-               // Trouver les routes manquantes
-               int path[MAX_CITIES];
-               int pathLength = 0;
-               findShortestPath(state, objFrom, objTo, path, &pathLength);
-               
-               // Pour chaque segment du chemin
-               for (int j = 0; j < pathLength - 1; j++) {
-                   int cityA = path[j];
-                   int cityB = path[j+1];
-                   bool routeClaimed = false;
-                   
-                   // Vérification des limites
-                   if (cityA < 0 || cityA >= state->nbCities || 
-                       cityB < 0 || cityB >= state->nbCities) {
-                       continue;
-                   }
-                   
-                   // Vérifier si cette route est déjà prise
-                   for (int k = 0; k < state->nbTracks; k++) {
-                       if (((state->routes[k].from == cityA && state->routes[k].to == cityB) ||
-                            (state->routes[k].from == cityB && state->routes[k].to == cityA)) &&
-                           state->routes[k].owner == 1) {
-                           routeClaimed = true;
-                           break;
-                       }
-                   }
-                   
-                   // Si cette route n'est pas encore prise, chercher si elle est disponible
-                   if (!routeClaimed) {
-                       // Chercher cette route parmi les routes possibles
-                       for (int r = 0; r < numPossibleRoutes; r++) {
-                           int routeIndex = possibleRoutes[r];
-                           
-                           if (routeIndex >= 0 && routeIndex < state->nbTracks) {
-                               int from = state->routes[routeIndex].from;
-                               int to = state->routes[routeIndex].to;
-                               
-                               if ((from == cityA && to == cityB) || (from == cityB && to == cityA)) {
-                                   // Mettre cette route en première position
-                                   int tempRoute = possibleRoutes[0];
-                                   CardColor tempColor = possibleColors[0];
-                                   int tempLoco = possibleLocomotives[0];
-                                   
-                                   possibleRoutes[0] = possibleRoutes[r];
-                                   possibleColors[0] = possibleColors[r];
-                                   possibleLocomotives[0] = possibleLocomotives[r];
-                                   
-                                   possibleRoutes[r] = tempRoute;
-                                   possibleColors[r] = tempColor;
-                                   possibleLocomotives[r] = tempLoco;
-                                   
-                                   printf("Found missing route for objective %d: from %d to %d\n",
-                                          bestObjectiveIndex + 1, from, to);
-                                   break;
-                               }
-                           }
-                       }
-                   }
-               }
-           }
-           else {
-               printf("Final phase: no objectives close to completion, maximizing points\n");
-           }
-           
-           shouldClaimRoute = true;
-       }
-   }
-   
-   // If we decided to claim a route
-   if (numPossibleRoutes > 0 && shouldClaimRoute) {
-       // Make sure the index is valid
-       if (possibleRoutes[0] >= 0 && possibleRoutes[0] < state->nbTracks) {
-           // Take the highest utility route (first after sorting)
-           int routeIndex = possibleRoutes[0];
-           
-           // CORRECTION: Vérifier que les villes sont valides
-           int from = state->routes[routeIndex].from;
-           int to = state->routes[routeIndex].to;
-           
-           if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-               printf("ERROR: Invalid cities in route %d: from %d to %d\n", routeIndex, from, to);
-               // Choisir une action alternative
-               moveData->action = DRAW_BLIND_CARD;
-               printf("Strategy decided: draw blind card (invalid route)\n");
-               return 1;
-           }
-           
-           CardColor color = possibleColors[0];
-           int nbLocomotives = possibleLocomotives[0];
-           
-           // CORRECTION: Vérifier que la couleur est valide
-           if (color < 0 || color > 9) {
-               printf("ERROR: Invalid color %d for route %d\n", color, routeIndex);
-               // Choisir une action alternative
-               moveData->action = DRAW_BLIND_CARD;
-               printf("Strategy decided: draw blind card (invalid color)\n");
-               return 1;
-           }
-           
-           // CORRECTION: Vérifier que nous avons assez de cartes
-           int colorCards = state->nbCardsByColor[color];
-           int locomotives = state->nbCardsByColor[LOCOMOTIVE];
-           int length = state->routes[routeIndex].length;
-           
-           if (color == LOCOMOTIVE) {
-               if (locomotives < length) {
-                   printf("ERROR: Not enough locomotives for route %d (need %d, have %d)\n", 
-                         routeIndex, length, locomotives);
-                   // Choisir une action alternative
-                   moveData->action = DRAW_BLIND_CARD;
-                   printf("Strategy decided: draw blind card (not enough locomotives)\n");
-                   return 1;
-               }
-           } else {
-               if (colorCards + locomotives < length) {
-                   printf("ERROR: Not enough cards for route %d (need %d, have %d %s and %d locomotives)\n", 
-                         routeIndex, length, colorCards, 
-                         (color < 10) ? (const char*[]){
-                             "None", "Purple", "White", "Blue", "Yellow", 
-                             "Orange", "Black", "Red", "Green", "Locomotive"
-                         }[color] : "Unknown",
-                         locomotives);
-                   // Choisir une action alternative
-                   moveData->action = DRAW_BLIND_CARD;
-                   printf("Strategy decided: draw blind card (not enough cards)\n");
-                   return 1;
-               }
-               
-               // CORRECTION: Vérifier que le nombre de locomotives est valide
-               if (nbLocomotives > locomotives) {
-                   printf("ERROR: Invalid locomotive count for route %d (need %d, have %d)\n", 
-                         routeIndex, nbLocomotives, locomotives);
-                   // Réajuster le nombre de locomotives
-                   if (locomotives > 0) {
-                       nbLocomotives = (length - colorCards > 0) ? 
-                           (length - colorCards < locomotives ? length - colorCards : locomotives) : 0;
-                       printf("Adjusted locomotive count to %d\n", nbLocomotives);
-                   } else {
-                       // Pas de locomotives disponibles
-                       // Choisir une action alternative
-                       moveData->action = DRAW_BLIND_CARD;
-                       printf("Strategy decided: draw blind card (not enough locomotives)\n");
-                       return 1;
-                   }
-               }
-           }
-           
-           // CORRECTION: Vérifier que la route est de la bonne couleur
-           CardColor routeColor = state->routes[routeIndex].color;
-           CardColor routeSecondColor = state->routes[routeIndex].secondColor;
-           
-           if (routeColor != LOCOMOTIVE && color != LOCOMOTIVE && color != routeColor && 
-               (routeSecondColor == NONE || color != routeSecondColor)) {
-               printf("ERROR: Invalid color %d for route %d (route colors: %d, %d)\n", 
-                     color, routeIndex, routeColor, routeSecondColor);
-               // Choisir une action alternative
-               moveData->action = DRAW_BLIND_CARD;
-               printf("Strategy decided: draw blind card (invalid color for route)\n");
-               return 1;
-           }
-           
-           // Prepare the action
-           moveData->action = CLAIM_ROUTE;
-           moveData->claimRoute.from = from;
-           moveData->claimRoute.to = to;
-           moveData->claimRoute.color = color;
-           moveData->claimRoute.nbLocomotives = nbLocomotives;
-           
-           printf("Strategy decided: claim route from %d to %d with color %d and %d locomotives\n",
-                  moveData->claimRoute.from, moveData->claimRoute.to, 
-                  moveData->claimRoute.color, moveData->claimRoute.nbLocomotives);
-           
-           return 1;
-       } else {
-           printf("ERROR: Invalid route index after prioritization\n");
-           // Fall through to card drawing
-       }
-   }
-   
-   // If we haven't made a decision yet, consider drawing cards or objectives
-   
-   // MODIFICATION: Draw objectives if completion rate is low
-   float objectiveCompletionRate = (state->nbObjectives > 0) ? 
-                                  (float)completedObjectives / state->nbObjectives : 0;
-   
-   if (state->nbObjectives < 3 || (objectiveCompletionRate < 0.5 && state->nbObjectives < 5 && phase != PHASE_FINAL)) {
-       moveData->action = DRAW_OBJECTIVES;
-       printf("Strategy decided: draw new objectives (completion rate: %.2f)\n", objectiveCompletionRate);
-       return 1;
-   }
-   
-   // Otherwise, draw cards strategically
-   
-   // First priority: Locomotive (always valuable)
-   for (int i = 0; i < 5; i++) {
-       if (state->visibleCards[i] == LOCOMOTIVE) {
-           moveData->action = DRAW_CARD;
-           moveData->drawCard = LOCOMOTIVE;
-           printf("Strategy decided: draw visible locomotive card\n");
-           return 1;
-       }
-   }
-   
-   // Use strategic card drawing
-   int cardIndex = strategicCardDrawing(state);
-
-   // Safety checks for card drawing
-   if (cardIndex >= 0 && cardIndex < 5 && 
-       state->visibleCards[cardIndex] != NONE && 
-       state->visibleCards[cardIndex] >= 0 && 
-       state->visibleCards[cardIndex] < 10) {
        
-       // Draw the selected visible card
-       moveData->action = DRAW_CARD;
-       moveData->drawCard = state->visibleCards[cardIndex];
-       
-       // Fixed string formatting for card name display
-       const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                              "Orange", "Black", "Red", "Green", "Locomotive"};
-       
-       printf("Strategy decided: draw visible %s card strategically\n", 
-              cardNames[moveData->drawCard]);
-   } else {
-       // Draw blind card
-       moveData->action = DRAW_BLIND_CARD;
-       printf("Strategy decided: draw blind card (better than visible options or invalid card index)\n");
-   }
-
-   return 1;
-}
-/**
- * Enhanced updateAfterOpponentMove that tracks opponent behavior
- */
-void enhancedUpdateAfterOpponentMove(GameState* state, MoveData* moveData) {
-    // First call the original function to handle basic state updates
-    updateAfterOpponentMove(state, moveData);
-    
-    // Then add enhanced opponent modeling
-    if (moveData->action == CLAIM_ROUTE) {
-        int from = moveData->claimRoute.from;
-        int to = moveData->claimRoute.to;
-        
-        // Safety check for valid cities
-        if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-            printf("WARNING: Invalid city indices in opponent's move: %d, %d\n", from, to);
-            return;
-        }
-        
-        // Update our opponent model with this move
-        updateOpponentObjectiveModel(state, from, to);
-        
-        // Log opponent behavior
-        printf("Opponent claimed route from %d to %d - analyzing their strategy\n", from, to);
-        
-        // Predict if they're close to completing objectives
-        checkOpponentObjectiveProgress(state);
+        default:
+            printf("Cas non géré, pioche par défaut\n");
+            moveData->action = DRAW_BLIND_CARD;
+            // Incrémenter le compteur de pioches consécutives
+            consecutiveDraws++;
+            return 1;
     }
+   
+    // Si nous avons changé de priorité, exécuter à nouveau mais en évitant les boucles infinies
+    static int recursionDepth = 0;
+    if (recursionDepth < 2) {  // Limiter la récursivité pour éviter les boucles infinies
+        recursionDepth++;
+        int result = superAdvancedStrategy(state, moveData);
+        recursionDepth--;
+        return result;
+    }
+   
+    // Fallback: piocher une carte aveugle
+    printf("Décision par défaut: Piocher une carte aveugle\n");
+    moveData->action = DRAW_BLIND_CARD;
+    // Incrémenter le compteur de pioches consécutives
+    consecutiveDraws++;
+    return 1;
 }
 
 /* 

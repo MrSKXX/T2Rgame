@@ -195,7 +195,7 @@ int main() {
 
 
     //les bots qu'on peut jouer contre sont: PLAY_RANDOM, DO_NOTHING
-    const char* gameSettings = "TRAINING DO_NOTHING";
+    const char* gameSettings = "TRAINING NICE_BOT";
     GameData gameData;
 
     // Envoi des paramètres de jeu
