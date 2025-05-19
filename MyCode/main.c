@@ -10,10 +10,6 @@
 #include "player.h"
 #include "strategy.h"
 #include "rules.h"
-#include "manual.h"
-
-// Définition du mode de jeu (0 = IA, 1 = manuel)
-#define MANUAL_MODE 0
 
 // Nombre maximum de tours avant d'arrêter automatiquement
 #define MAX_TURNS 200
@@ -63,117 +59,14 @@ bool isGameOver(char* message) {
             strstr(message, "Final Score") != NULL);
 }
 
-// Extrait et affiche le score à partir d'un message du serveur
-void printGameResult(char* message, const char* playerName, int ourCalculatedScore) {
-    if (!message) {
-        printf("\n==================================================\n");
-        printf("              PARTIE TERMINEE                    \n");
-        printf("==================================================\n");
-        printf("Notre score calculé: %d\n", ourCalculatedScore);
-        printf("Pour connaître le score de l'adversaire et le gagnant,\n");
-        printf("consultez le plateau final affiché ci-dessus.\n");
-        printf("==================================================\n\n");
-        return;
-    }
-    
+// Version simplifiée pour afficher les résultats finaux
+void printGameResult(int finalScore) {
     printf("\n==================================================\n");
     printf("              RESULTAT DE LA PARTIE               \n");
     printf("==================================================\n");
-    
-    // Variables pour les scores
-    int ourScoreFromMessage = 0;
-    int opponentScoreFromMessage = 0;
-    char opponentName[50] = "Adversaire";
-    char ourName[50] = "Notre bot";
-    bool winnerDetermined = false;
-    bool weWon = false;
-    
-    // Afficher l'intégralité du message, ligne par ligne avec formatage
-    char* messageCopy = strdup(message);
-    char* line = strtok(messageCopy, "\n");
-    while (line) {
-        printf("%s\n", line);
-        
-        // Chercher des mentions explicites de victoire
-        if (strstr(line, "You are the winner")) {
-            winnerDetermined = true;
-            weWon = true;
-        } else if (strstr(line, "Your opponent is the winner")) {
-            winnerDetermined = true;
-            weWon = false;
-        }
-        
-        // Extraire les scores si disponibles dans une ligne de score total
-        if (strstr(line, "Total score:")) {
-            char scoreLine[512];
-            strcpy(scoreLine, line);
-            
-            // Analyse la ligne des scores totaux
-            char* token = strtok(scoreLine, ":");
-            token = strtok(NULL, ":");  // Skip "Total score"
-            
-            // Parcourir les tokens pour trouver les scores
-            // Format typique: "    PlayNice: 138pts        Georges2222: 3pts"
-            while (token) {
-                char name[50] = {0};
-                int score = 0;
-                
-                // Essayer d'extraire nom et score
-                if (sscanf(token, "%s %dpts", name, &score) == 2) {
-                    // Enlever les caractères superflus du nom
-                    char* cleanName = name;
-                    while (*cleanName == ' ') cleanName++;
-                    
-                    // Déterminer si c'est notre score ou celui de l'adversaire
-                    if (strstr(cleanName, playerName)) {
-                        strcpy(ourName, cleanName);
-                        ourScoreFromMessage = score;
-                    } else {strcpy(opponentName, cleanName);
-                        opponentScoreFromMessage = score;
-                    }
-                }
-                
-                token = strtok(NULL, ":");
-            }
-            
-            // Si les scores ont été extraits, on peut déterminer le gagnant par les points
-            if (ourScoreFromMessage > 0 || opponentScoreFromMessage > 0) {
-                if (!winnerDetermined) {
-                    weWon = (ourScoreFromMessage > opponentScoreFromMessage);
-                    winnerDetermined = true;
-                }
-            }
-        }
-        
-        line = strtok(NULL, "\n");
-    }
-    free(messageCopy);
-    
-    // Si nous n'avons pas trouvé de scores dans le message, utiliser ceux calculés localement
-    if (ourScoreFromMessage == 0 && ourCalculatedScore > 0) {
-        ourScoreFromMessage = ourCalculatedScore;
-    }
-    
-    // Afficher clairement qui a gagné
-    printf("\n==================================================\n");
-    if (winnerDetermined) {
-        if (weWon) {
-            printf("             VOUS AVEZ GAGNE!              \n");
-        } else {
-            printf("            VOUS AVEZ PERDU                \n");
-        }
-        
-        if (ourScoreFromMessage > 0 || opponentScoreFromMessage > 0) {
-            printf("       Scores finaux: %s = %d, %s = %d       \n", 
-                   ourName, ourScoreFromMessage, opponentName, opponentScoreFromMessage);
-        }
-    } else {
-        printf("              RESULTAT INDETERMINE              \n");
-        if (ourCalculatedScore > 0) {
-            printf("         Notre score calculé: %d               \n", ourCalculatedScore);
-            printf("     Consultez le plateau pour plus de détails    \n");
-        }
-    }
+    printf("Notre score final: %d\n", finalScore);
+    printf("Pour connaître le score de l'adversaire et le gagnant,\n");
+    printf("consultez le plateau final affiché ci-dessus.\n");
     printf("==================================================\n\n");
 }
 
@@ -193,8 +86,7 @@ int main() {
     }
     printf("Successfully connected to server.\n");
 
-
-    //les bots qu'on peut jouer contre sont: PLAY_RANDOM, DO_NOTHING
+    //les bots qu'on peut jouer contre sont: PLAY_RANDOM, DO_NOTHING, PLAY_NICE
     const char* gameSettings = "TRAINING NICE_BOT";
     GameData gameData;
 
@@ -222,7 +114,6 @@ int main() {
     int turnCounter = 0;
     bool gameRunning = true;
     bool firstTurn = true;
-    char* finalGameMessage = NULL;
     int consecutiveErrors = 0;   // Compteur d'erreurs consécutives
     int cardDrawnThisTurn = 0;   // Pour suivre si on a déjà pioché une carte ce tour-ci
     
@@ -290,25 +181,14 @@ int main() {
             ResultCode playCode;
             MoveResult moveResult = {0};  // Initialize to zeros
             
-            // Jouer selon le mode (manuel ou IA)
-            if (MANUAL_MODE) {
-                if (firstTurn) {
-                    playCode = playManualFirstTurn(&gameState);
-                    if (playCode == ALL_GOOD) {
-                        firstTurn = false;
-                    }
-                } else {
-                    playCode = playManualTurn(&gameState);
+            // Jouer notre tour
+            if (firstTurn) {
+                playCode = playFirstTurn(&gameState);
+                if (playCode == ALL_GOOD) {
+                    firstTurn = false;
                 }
             } else {
-                if (firstTurn) {
-                    playCode = playFirstTurn(&gameState);
-                    if (playCode == ALL_GOOD) {
-                        firstTurn = false;
-                    }
-                } else {
-                    playCode = playTurn(&gameState, strategy);
-                }
+                playCode = playTurn(&gameState, strategy);
             }
             
             if (playCode == ALL_GOOD) {
@@ -327,10 +207,8 @@ int main() {
                     cardDrawnThisTurn = 0;
                 }
                 
-                // Gestion explicite du flag replay
-                // Lors d'un appel à playTurn, la logique est déjà gérée à l'intérieur
-                // pour la deuxième carte, donc ici on passe juste le tour
-                ourTurn = false;  // Passer au tour de l'adversaire
+                // Passer au tour de l'adversaire
+                ourTurn = false;
             } 
             else if (playCode == SERVER_ERROR) {
                 printf("Erreur serveur pendant notre tour: 0x%x\n", playCode);
@@ -348,8 +226,6 @@ int main() {
                 // Si nous avons un message final, c'est probablement la fin de partie
                 if (moveResult.message && isGameOver(moveResult.message)) {
                     printf("Fin de partie détectée via le message du serveur.\n");
-                    if (finalGameMessage) free(finalGameMessage);
-                    finalGameMessage = strdup(moveResult.message);
                     gameRunning = false;
                     cleanupMoveResult(&moveResult);
                     break;
@@ -405,8 +281,6 @@ int main() {
                 // Vérifier si c'est un message de fin de partie
                 if (moveResult.message && isGameOver(moveResult.message)) {
                     printf("Fin de partie détectée via le message d'erreur.\n");
-                    if (finalGameMessage) free(finalGameMessage);
-                    finalGameMessage = strdup(moveResult.message);
                     gameRunning = false;
                     cleanupMoveResult(&moveResult);
                     break;
@@ -466,13 +340,6 @@ int main() {
                         opponentMoveResult.state == -1) { // LOOSING_MOVE
                         printf("Fin de partie signalée par le serveur! État: %d\n", opponentMoveResult.state);
                         gameRunning = false;
-                        
-                        // Sauvegarder le message final
-                        if (opponentMoveResult.message) {
-                            if (finalGameMessage) free(finalGameMessage);
-                            finalGameMessage = strdup(opponentMoveResult.message);
-                        }
-                        
                         cleanupMoveResult(&opponentMoveResult);
                         break;
                     }
@@ -482,23 +349,13 @@ int main() {
                 if (opponentMoveResult.message) {
                     if (isGameOver(opponentMoveResult.message)) {
                         printf("Fin de partie détectée dans le message de l'adversaire!\n");
-                        // Sauvegarder le message pour l'afficher à la fin
-                        if (finalGameMessage) free(finalGameMessage);
-                        finalGameMessage = strdup(opponentMoveResult.message);
-                        
                         gameRunning = false;
-                        // Libérer la mémoire
                         cleanupMoveResult(&opponentMoveResult);
                         break;
                     }
-                    // Même si ce n'est pas la fin, on garde le message s'il contient un score
-                    else if (strstr(opponentMoveResult.message, "Total score")) {
-                        if (finalGameMessage) free(finalGameMessage);
-                        finalGameMessage = strdup(opponentMoveResult.message);
-                    }
                 }
                 
-                // CORRECTION: Vérifier si le serveur indique une désynchronisation
+                // Vérifier si le serveur indique une désynchronisation
                 if (opponentMoveResult.message && 
                     (strstr(opponentMoveResult.message, "It's our turn") || 
                      strstr(opponentMoveResult.message, "cannot ask for a move"))) {
@@ -553,13 +410,6 @@ int main() {
                 if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
                     printf("Fin de partie détectée par erreur serveur.\n");
                     gameRunning = false;
-                    
-                    // Vérifier si nous avons un message final
-                    if (opponentMoveResult.message && isGameOver(opponentMoveResult.message)) {
-                        if (finalGameMessage) free(finalGameMessage);
-                        finalGameMessage = strdup(opponentMoveResult.message);
-                    }
-                    
                     cleanupMoveResult(&opponentMoveResult);
                     break;
                 }
@@ -599,13 +449,6 @@ int main() {
                 if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
                     printf("Fin de partie détectée. Dernière erreur: 0x%x\n", moveCode);
                     gameRunning = false;
-                    
-                    // Vérifier si nous avons un message final
-                    if (opponentMoveResult.message && isGameOver(opponentMoveResult.message)) {
-                        if (finalGameMessage) free(finalGameMessage);
-                        finalGameMessage = strdup(opponentMoveResult.message);
-                    }
-                    
                     cleanupMoveResult(&opponentMoveResult);
                     break;
                 }
@@ -647,17 +490,13 @@ int main() {
         }
         
         // Afficher l'état mis à jour
-        if (MANUAL_MODE) {
-            printManualGameState(&gameState);
-        } else {
-            printGameState(&gameState);
-        }
+        printGameState(&gameState);
         
         // Calculer le score actuel
         int currentScore = calculateScore(&gameState);
         printf("Current score: %d\n", currentScore);
         
-        // CORRECTION: Vérification explicite du dernier tour
+        // Vérification explicite du dernier tour
         if (gameState.wagonsLeft <= 2) {
             printf("DERNIER TOUR: Il nous reste <= 2 wagons!\n");
             gameState.lastTurn = 1;
@@ -689,23 +528,8 @@ int main() {
     // Calculer notre score final
     int finalScore = calculateScore(&gameState);
     
-    // Afficher le résultat final si disponible
-    if (finalGameMessage) {
-        printGameResult(finalGameMessage, playerName, finalScore);
-        free(finalGameMessage);
-    } else {
-        // Si pas de message final, utiliser les informations calculées localement
-        printf("\n==================================================\n");
-        printf("              RESULTAT DE LA PARTIE               \n");
-        printf("==================================================\n");
-        
-        // Utiliser uniquement notre score calculé
-        printf("Notre score final calculé: %d\n", finalScore);
-        printf("Pour connaître le score de l'adversaire et le gagnant,\n");
-        printf("consultez le plateau final affiché ci-dessus.\n");
-        
-        printf("==================================================\n\n");
-    }
+    // Afficher le résultat final
+    printGameResult(finalScore);
     
     // Nettoyage final
     if (gameData.gameName) free(gameData.gameName);
