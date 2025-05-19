@@ -86,7 +86,7 @@ int main() {
     }
     printf("Successfully connected to server.\n");
 
-    //les bots qu'on peut jouer contre sont: PLAY_RANDOM, DO_NOTHING, PLAY_NICE
+    //les bots qu'on peut jouer contre sont: PLAY_RANDOM, DO_NOTHING, NICE_BOT
     const char* gameSettings = "TRAINING NICE_BOT";
     GameData gameData;
 
@@ -191,6 +191,16 @@ int main() {
                 playCode = playTurn(&gameState, strategy);
             }
             
+                if (gameState.nbClaimedRoutes > MAX_ROUTES || gameState.nbCards > MAX_CARDS || 
+        gameState.nbObjectives > MAX_OBJECTIVES) {
+        printf("ERREUR CRITIQUE: État du jeu corrompu après notre tour\n");
+        printf("Routes: %d/%d, Cartes: %d/%d, Objectifs: %d/%d\n", 
+               gameState.nbClaimedRoutes, MAX_ROUTES, 
+               gameState.nbCards, MAX_CARDS, 
+               gameState.nbObjectives, MAX_OBJECTIVES);
+        // Vous pourriez vouloir corriger l'état ici ou simplement continuer
+    }
+
             if (playCode == ALL_GOOD) {
                 printf("Successfully played our turn\n");
                 consecutiveErrors = 0; // Réinitialiser le compteur d'erreurs

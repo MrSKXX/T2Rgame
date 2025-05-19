@@ -286,6 +286,14 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
             continue;
         }
         
+    if (state->routes[i].from < 0 || state->routes[i].from >= state->nbCities || 
+        state->routes[i].to < 0 || state->routes[i].to >= state->nbCities) {
+        printf("ERREUR CRITIQUE: Route %d contient des villes invalides: %d -> %d\n", 
+               i, state->routes[i].from, state->routes[i].to);
+        continue;
+    }
+
+
         // Si la route n'est pas déjà prise
         if (state->routes[i].owner == 0) {
             int from = state->routes[i].from;
@@ -388,6 +396,12 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
                         // CORRECTION: Vérifier qu'on ne dépasse pas la taille du tableau
                         if (count < MAX_ROUTES_TO_PROCESS) {
                             possibleRoutes[count] = i;
+                            // Vérification de validité de la couleur
+                            if (color < 1 || color > 9) {
+                                printf("ERREUR DANS findPossibleRoutes: Couleur invalide %d détectée pour route %d->%d, correction à BLACK (6)\n", 
+                                    color, from, to);
+                                color = 6;  // BLACK est généralement 6
+                            }
                             possibleColors[count] = color;
                             possibleLocomotives[count] = nbLocomotives;
                             
@@ -491,6 +505,16 @@ int routeOwner(GameState* state, int from, int to) {
     return -1; // Route non trouvée
 }
 
+// Trouver l'index d'une route entre deux villes
+int findRouteIndex(GameState* state, int from, int to) {
+    for (int i = 0; i < state->nbTracks; i++) {
+        if ((state->routes[i].from == from && state->routes[i].to == to) ||
+            (state->routes[i].from == to && state->routes[i].to == from)) {
+            return i;
+        }
+    }
+    return -1; // Route non trouvée
+}
 
 
 

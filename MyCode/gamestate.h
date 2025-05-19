@@ -108,5 +108,39 @@ void printGameState(GameState* state);
 
 void printConnectivityMatrix(GameState* state);
 
+/**
+ * Analyse le réseau de routes existant
+ * @param state État actuel du jeu
+ * @param cityConnectivity Tableau à remplir avec le nombre de connexions par ville
+ */
+void analyzeExistingNetwork(GameState* state, int* cityConnectivity);
 
+/**
+ * Structure pour stocker les informations sur les connexions manquantes
+ */
+typedef struct {
+    int city;
+    int connectionsNeeded;
+    int priority;
+} MissingConnection;
+
+/**
+ * Trouve les connexions manquantes entre les hubs et les objectifs
+ * @param state État actuel du jeu
+ * @param cityConnectivity Tableau de connexions par ville
+ * @param missingConnections Tableau à remplir avec les connexions manquantes
+ * @param count Nombre de connexions trouvées
+ */
+void findMissingConnections(GameState* state, int* cityConnectivity, MissingConnection* missingConnections, int* count);
+
+/**
+ * Trouve le chemin le plus intelligent (pas forcément le plus court) entre deux villes
+ * @param state État actuel du jeu
+ * @param start Ville de départ
+ * @param end Ville d'arrivée
+ * @param path Tableau à remplir avec le chemin
+ * @param pathLength Longueur du chemin
+ * @return Distance du chemin, -1 si aucun chemin n'est trouvé
+ */
+int findSmartestPath(GameState* state, int start, int end, int* path, int* pathLength);
 #endif // GAMESTATE_H

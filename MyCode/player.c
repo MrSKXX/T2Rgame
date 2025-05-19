@@ -405,26 +405,30 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
     // Traite le résultat de l'action
     switch (myMove.action) {
         case CLAIM_ROUTE:
-            // Met à jour notre état après avoir pris une route
-            addClaimedRoute(state, myMove.claimRoute.from, myMove.claimRoute.to);
-            
-            // Trouve la longueur de la route
-            int routeLength = 0;
-            for (int i = 0; i < state->nbTracks; i++) {
-                if ((state->routes[i].from == myMove.claimRoute.from && state->routes[i].to == myMove.claimRoute.to) ||
-                    (state->routes[i].from == myMove.claimRoute.to && state->routes[i].to == myMove.claimRoute.from)) {
-                    routeLength = state->routes[i].length;
-                    break;
+                // MODIFIEZ CETTE PARTIE POUR VÉRIFIER L'ÉTAT AVANT LA MISE À JOUR
+                if (myMoveResult.state == NORMAL_MOVE) {
+                    // Met à jour notre état après avoir pris une route
+                    addClaimedRoute(state, myMove.claimRoute.from, myMove.claimRoute.to);
+                    
+                    // Trouve la longueur de la route
+                    int routeLength = 0;
+                    for (int i = 0; i < state->nbTracks; i++) {
+                        if ((state->routes[i].from == myMove.claimRoute.from && state->routes[i].to == myMove.claimRoute.to) ||
+                            (state->routes[i].from == myMove.claimRoute.to && state->routes[i].to == myMove.claimRoute.from)) {
+                            routeLength = state->routes[i].length;
+                            break;
+                        }
+                    }
+                    
+                    // Retire les cartes utilisées
+                    removeCardsForRoute(state, myMove.claimRoute.color, routeLength, myMove.claimRoute.nbLocomotives);
+                    printf("Successfully claimed route\n");
+                } else {
+                    printf("AVERTISSEMENT: Action CLAIM_ROUTE non confirmée par le serveur, état: %d\n", myMoveResult.state);
                 }
-            }
-            
-            // Retire les cartes utilisées
-            removeCardsForRoute(state, myMove.claimRoute.color, routeLength, myMove.claimRoute.nbLocomotives);
-            printf("Successfully claimed route\n");
-            
-            // Après une prise de route, le tour est terminé
-            cardDrawnThisTurn = 0;
-            break;
+                // Après une prise de route, le tour est terminé
+                cardDrawnThisTurn = 0;
+                break;
             
         case DRAW_CARD:
             // Ajoute la carte piochée à notre main

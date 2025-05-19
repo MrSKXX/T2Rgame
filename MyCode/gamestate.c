@@ -193,6 +193,10 @@ void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLo
 
 // Met à jour l'état du jeu après avoir pris une route
 void addClaimedRoute(GameState* state, int from, int to) {
+    if (!state || from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
+        printf("ERREUR CRITIQUE: Paramètres invalides dans addClaimedRoute (%d -> %d)\n", from, to);
+        return;
+    }
     // Trouve l'index de la route
     int routeIndex = -1;
     for (int i = 0; i < state->nbTracks; i++) {
@@ -204,12 +208,22 @@ void addClaimedRoute(GameState* state, int from, int to) {
     }
     
     if (routeIndex != -1) {
+        // VALIDATION SUPPLÉMENTAIRE
+        if (state->routes[routeIndex].owner != 0) {
+            printf("ERREUR: Tentative de prendre une route déjà possédée (owner: %d)\n", 
+                   state->routes[routeIndex].owner);
+            return;
+        }
+        
         // Marque la route comme prise par nous
         state->routes[routeIndex].owner = 1;
         // Ajoute à notre liste de routes prises
-        state->claimedRoutes[state->nbClaimedRoutes++] = routeIndex;
-        
-        printf("Added route from %d to %d to our claimed routes\n", from, to);
+        if (state->nbClaimedRoutes < MAX_ROUTES) {
+            state->claimedRoutes[state->nbClaimedRoutes++] = routeIndex;
+            printf("Added route from %d to %d to our claimed routes\n", from, to);
+        } else {
+            printf("ERREUR: Impossible d'ajouter plus de routes (maximum atteint)\n");
+        }
         
         // Met à jour la connectivité
         updateCityConnectivity(state);
@@ -563,4 +577,93 @@ void printConnectivityMatrix(GameState* state) {
     }
     
     printf("=========================\n\n");
+}
+void analyzeExistingNetwork(GameState* state, int* cityConnectivity) {
+    // Initialiser le tableau à 0
+    for (int i = 0; i < state->nbCities; i++) {
+        cityConnectivity[i] = 0;
+    }
+    
+    // Compter les connexions pour chaque ville
+    for (int i = 0; i < state->nbClaimedRoutes; i++) {
+        int routeIndex = state->claimedRoutes[i];
+        if (routeIndex >= 0 && routeIndex < state->nbTracks) {
+            int from = state->routes[routeIndex].from;
+            int to = state->routes[routeIndex].to;
+            
+            if (from >= 0 && from < state->nbCities) {
+                cityConnectivity[from]++;
+            }
+            if (to >= 0 && to < state->nbCities) {
+                cityConnectivity[to]++;
+            }
+        }
+    }
+    
+    printf("Analyse du réseau existant:\n");
+    for (int i = 0; i < state->nbCities; i++) {
+        if (cityConnectivity[i] > 0) {
+            printf("  Ville %d: %d connexions\n", i, cityConnectivity[i]);
+        }
+    }
+}
+
+void findMissingConnections(GameState* state, int* cityConnectivity, MissingConnection* missingConnections, int* count) {
+    *count = 0;
+    
+    // Pour chaque objectif non complété
+    for (int i = 0; i < state->nbObjectives; i++) {
+        if (!isObjectiveCompleted(state, state->objectives[i])) {
+            int objFrom = state->objectives[i].from;
+            int objTo = state->objectives[i].to;
+            int objScore = state->objectives[i].score;
+            
+            // Trouver toutes les villes avec au moins 2 connexions (hubs)
+            for (int city = 0; city < state->nbCities; city++) {
+                if (cityConnectivity[city] >= 2) {
+                    // Vérifier si un hub est déjà connecté à une extrémité de l'objectif
+                    if (state->cityConnected[city][objFrom] || state->cityConnected[city][objTo]) {
+                        // Chercher la connexion manquante
+                        int targetCity = state->cityConnected[city][objFrom] ? objTo : objFrom;
+                        
+                        // Vérifier s'il est possible de connecter ce hub à l'autre extrémité
+                        int path[MAX_CITIES];
+                        int pathLength = 0;
+                        if (!state->cityConnected[city][targetCity] && 
+                            findShortestPath(state, city, targetCity, path, &pathLength) > 0) {
+                            
+                            // Cette connexion manquante aiderait à compléter l'objectif
+                            if (*count < MAX_CITIES) {
+                                missingConnections[*count].city = city;
+                                missingConnections[*count].connectionsNeeded = pathLength - 1;
+                                // Priorité basée sur le score de l'objectif et l'effort nécessaire
+                                missingConnections[*count].priority = 
+                                    (objScore * 100) / missingConnections[*count].connectionsNeeded;
+                                (*count)++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Trier par priorité
+    for (int i = 0; i < *count - 1; i++) {
+        for (int j = 0; j < *count - i - 1; j++) {
+            if (missingConnections[j].priority < missingConnections[j+1].priority) {
+                MissingConnection temp = missingConnections[j];
+                missingConnections[j] = missingConnections[j+1];
+                missingConnections[j+1] = temp;
+            }
+        }
+    }
+    
+    printf("Connexions manquantes identifiées:\n");
+    for (int i = 0; i < *count && i < 5; i++) {
+        printf("  Ville %d: %d connexions nécessaires, priorité %d\n", 
+               missingConnections[i].city, 
+               missingConnections[i].connectionsNeeded, 
+               missingConnections[i].priority);
+    }
 }

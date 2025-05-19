@@ -61,5 +61,20 @@ void identifyAndPrioritizeBottlenecks(GameState* state, int* prioritizedRoutes, 
 int evaluateEndgameScore(GameState* state, int routeIndex);
 int estimateOpponentScore(GameState* state);
 void planNextRoutes(GameState* state, int* routesPlan, int count);
+/**
+ * Structure pour les routes critiques pour compléter des objectifs
+ */
+typedef struct {
+    int from;
+    int to;
+    int objectiveIndex;
+    int priority;
+    CardColor color;
+    int nbLocomotives;
+    bool hasEnoughCards;  // Indique si nous avons assez de cartes pour prendre cette route
+} CriticalRoute;
 
+// Déclaration des fonctions associées
+void identifyCriticalRoutes(GameState* state, CriticalRoute* criticalRoutes, int* count);
+bool haveEnoughCards(GameState* state, int from, int to, CardColor* color, int* nbLocomotives);
 #endif // STRATEGY_H

@@ -75,4 +75,14 @@ int isObjectiveCompleted(GameState* state, Objective objective);
  */
 int calculateScore(GameState* state);
 
+
+/**
+ * Trouve l'index d'une route entre deux villes
+ * @param state État actuel du jeu
+ * @param from Ville de départ
+ * @param to Ville d'arrivée
+ * @return Index de la route, -1 si non trouvée
+ */
+int findRouteIndex(GameState* state, int from, int to);
+
 #endif // RULES_H
