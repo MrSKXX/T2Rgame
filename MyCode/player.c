@@ -391,7 +391,50 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
         default:
             printf("Unknown action %d\n", myMove.action);
     }
+    // VÉRIFICATION ULTIME: s'assurer que l'action est cohérente
+if (myMove.action == CLAIM_ROUTE) {
+    // Vérifier que from/to sont valides
+    if (myMove.claimRoute.from < 0 || myMove.claimRoute.from >= state->nbCities || 
+        myMove.claimRoute.to < 0 || myMove.claimRoute.to >= state->nbCities) {
+        printf("ERREUR FATALE: Tentative de prendre une route avec villes invalides: %d -> %d\n", 
+              myMove.claimRoute.from, myMove.claimRoute.to);
+        myMove.action = DRAW_BLIND_CARD;
+    }
     
+    // Vérifier que la route existe et est disponible
+    else {
+        bool routeFound = false;
+        for (int i = 0; i < state->nbTracks; i++) {
+            if ((state->routes[i].from == myMove.claimRoute.from && 
+                 state->routes[i].to == myMove.claimRoute.to) ||
+                (state->routes[i].from == myMove.claimRoute.to && 
+                 state->routes[i].to == myMove.claimRoute.from)) {
+                
+                routeFound = true;
+                
+                // Vérifier que la route est libre
+                if (state->routes[i].owner != 0) {
+                    printf("ERREUR FATALE: Tentative de prendre une route déjà prise: %d -> %d\n", 
+                          myMove.claimRoute.from, myMove.claimRoute.to);
+                    myMove.action = DRAW_BLIND_CARD;
+                }
+                break;
+            }
+        }
+        
+        if (!routeFound) {
+            printf("ERREUR FATALE: Route inexistante: %d -> %d\n", 
+                  myMove.claimRoute.from, myMove.claimRoute.to);
+            myMove.action = DRAW_BLIND_CARD;
+        }
+    }
+    
+    // Vérifier que la couleur est valide
+    if (myMove.claimRoute.color < PURPLE || myMove.claimRoute.color > LOCOMOTIVE) {
+        printf("ERREUR FATALE: Couleur invalide: %d\n", myMove.claimRoute.color);
+        myMove.action = DRAW_BLIND_CARD;
+    }
+}
     // Envoie l'action
     returnCode = sendMove(&myMove, &myMoveResult);
     

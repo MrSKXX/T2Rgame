@@ -608,3 +608,17 @@ int calculateScore(GameState* state) {
     
     return score;
 }
+
+// Compte le nombre d'objectifs complétés
+int completeObjectivesCount(GameState* state) {
+    if (!state) return 0;
+    
+    int count = 0;
+    for (int i = 0; i < state->nbObjectives; i++) {
+        if (isObjectiveCompleted(state, state->objectives[i])) {
+            count++;
+        }
+    }
+    
+    return count;
+}

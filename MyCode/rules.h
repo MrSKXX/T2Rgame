@@ -85,4 +85,11 @@ int calculateScore(GameState* state);
  */
 int findRouteIndex(GameState* state, int from, int to);
 
+/**
+ * Compte le nombre d'objectifs complétés
+ * @param state État actuel du jeu
+ * @return Nombre d'objectifs complétés
+ */
+int completeObjectivesCount(GameState* state);
+
 #endif // RULES_H
