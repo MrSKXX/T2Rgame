@@ -156,6 +156,14 @@ if (myMove.action == CLAIM_ROUTE) {
 
 // APRÈS LA VÉRIFICATION, ENVOI DU COUP AU SERVEUR
 // Envoie l'action
+// Dernière vérification de sécurité pour les actions CLAIM_ROUTE
+if (myMove.action == CLAIM_ROUTE) {
+    // Vérification de validité de la couleur
+    if (myMove.claimRoute.color < 1 || myMove.claimRoute.color > 9) {
+        printf("ERREUR CRITIQUE FINALE: Couleur invalide %d, correction à 6 (BLACK)\n", myMove.claimRoute.color);
+        myMove.claimRoute.color = 6;  // BLACK est généralement 6
+    }
+}
 returnCode = sendMove(&myMove, &myMoveResult);
     
     if (returnCode != ALL_GOOD) {
@@ -265,14 +273,15 @@ returnCode = sendMove(&myMove, &myMoveResult);
 
 // Joue un tour normal
 // Modification de la fonction playTurn pour capturer le message final
+// Joue un tour normal
 ResultCode playTurn(GameState* state, StrategyType strategy) {
     ResultCode returnCode;
     MoveData myMove;
-    MoveResult myMoveResult = {0};  // Initialisation à zéro
+    MoveResult myMoveResult = {0};
     BoardState boardState;
     
     // Variable statique pour suivre si une carte a déjà été piochée ce tour-ci
-    static int cardDrawnThisTurn = 0;  // 0 = début de tour, 1 = une carte non-locomotive déjà piochée
+    static int cardDrawnThisTurn = 0;
     
     // Récupère l'état du plateau (cartes visibles)
     returnCode = getBoardState(&boardState);
@@ -290,11 +299,9 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
 
     // Si nous avons déjà pioché une carte non-locomotive ce tour-ci
     if (cardDrawnThisTurn == 1) {
-        printf("Second card draw this turn - cannot draw a visible locomotive\n");
+        printf("Second card draw this turn\n");
         
         // Pour la seconde carte, on ne peut pas prendre de locomotive visible
-        // Soit une carte visible non-locomotive, soit une carte aveugle
-        
         // Vérifier s'il y a des cartes visibles non-locomotive
         CardColor cardToDraw = (CardColor)-1;
         for (int i = 0; i < 5; i++) {
@@ -305,90 +312,109 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
         }
         
         if (cardToDraw != (CardColor)-1) {
-            // Il y a une carte visible non-locomotive disponible
             myMove.action = DRAW_CARD;
             myMove.drawCard = cardToDraw;
-            printf("Drawing second visible card: ");
-            printCardName(cardToDraw);
+            printf("Drawing second visible card: %d\n", cardToDraw);
         } else {
-            // Pas de carte visible non-locomotive, on pioche une carte aveugle
             myMove.action = DRAW_BLIND_CARD;
             printf("Drawing second blind card\n");
         }
         
-        // Réinitialiser le compteur pour le prochain tour - TOUJOURS FAIT APRÈS AVOIR ENVOYÉ LE COUP
         cardDrawnThisTurn = 0;
     } else {
         // Début de tour normal - toutes les options sont disponibles
-        
-        // Décide de l'action à effectuer selon la stratégie
         if (!decideNextMove(state, strategy, &myMove)) {
-            // Si aucune décision n'a été prise, on pioche une carte aveugle par défaut
-            printf("No specific move decided, drawing blind card by default\n");
+            printf("No specific move decided, drawing blind card\n");
             myMove.action = DRAW_BLIND_CARD;
         }
+    }
+    
+    // VÉRIFICATION DE SÉCURITÉ POUR LA VALIDITÉ DE LA COULEUR
+    if (myMove.action == CLAIM_ROUTE) {
+        CardColor color = myMove.claimRoute.color;
         
-        // NE PAS RÉINITIALISER cardDrawnThisTurn ICI - On le fera après avoir vérifié le résultat du serveur
+        // Vérifier que la couleur est dans la plage valide (1-9)
+        if (color < PURPLE || color > LOCOMOTIVE) {
+            printf("ERREUR CRITIQUE: Couleur invalide détectée: %d, correction à GREEN (8)\n", color);
+            myMove.claimRoute.color = GREEN; // Utiliser GREEN comme couleur par défaut
+        }
+        
+        // Vérification supplémentaire: s'assurer que nous avons assez de cartes de cette couleur
+        int routeIndex = findRouteIndex(state, myMove.claimRoute.from, myMove.claimRoute.to);
+        if (routeIndex >= 0) {
+            int length = state->routes[routeIndex].length;
+            CardColor routeColor = state->routes[routeIndex].color;
+            
+            // Pour les routes colorées, vérifier que la couleur est valide
+            if (routeColor != LOCOMOTIVE && color != routeColor && 
+                color != state->routes[routeIndex].secondColor && color != LOCOMOTIVE) {
+                
+                printf("CORRECTION: Couleur incorrecte pour route %d->%d (couleur choisie: %d, route: %d)\n", 
+                      myMove.claimRoute.from, myMove.claimRoute.to, color, routeColor);
+                
+                // Adapter la couleur à celle de la route
+                if (state->nbCardsByColor[routeColor] >= length) {
+                    myMove.claimRoute.color = routeColor;
+                    myMove.claimRoute.nbLocomotives = 0;
+                } else if (state->nbCardsByColor[LOCOMOTIVE] >= length) {
+                    myMove.claimRoute.color = LOCOMOTIVE;
+                    myMove.claimRoute.nbLocomotives = length;
+                } else if (state->nbCardsByColor[routeColor] + state->nbCardsByColor[LOCOMOTIVE] >= length) {
+                    myMove.claimRoute.color = routeColor;
+                    myMove.claimRoute.nbLocomotives = length - state->nbCardsByColor[routeColor];
+                } else {
+                    // Si on ne peut pas prendre la route, changer d'action
+                    printf("ERREUR CRITIQUE: Pas assez de cartes pour cette route! Piochage à la place.\n");
+                    myMove.action = DRAW_BLIND_CARD;
+                }
+            }
+        }
     }
     
     // Affiche l'action choisie
-    printf("Decided action: ");
+    printf("Action: ");
     switch (myMove.action) {
         case CLAIM_ROUTE:
-            printf("Claim route from ");
-            printCity(myMove.claimRoute.from);
-            printf(" to ");
-            printCity(myMove.claimRoute.to);
-            printf(" with color ");
-            printCardName(myMove.claimRoute.color);
-            printf(" using %d locomotives\n", myMove.claimRoute.nbLocomotives);
+            printf("Claim route %d -> %d (color %d, locos %d)\n", 
+                   myMove.claimRoute.from, myMove.claimRoute.to, 
+                   myMove.claimRoute.color, myMove.claimRoute.nbLocomotives);
             break;
-            
         case DRAW_CARD:
-            printf("Draw visible card: ");
-            printCardName(myMove.drawCard);
+            printf("Draw visible card %d\n", myMove.drawCard);
             break;
-            
         case DRAW_BLIND_CARD:
             printf("Draw blind card\n");
             break;
-            
         case DRAW_OBJECTIVES:
             printf("Draw objectives\n");
             break;
-            
         default:
-            printf("Unknown action type: %d\n", myMove.action);
+            printf("Unknown action %d\n", myMove.action);
     }
     
     // Envoie l'action
     returnCode = sendMove(&myMove, &myMoveResult);
     
-    // Vérifier si c'est la fin du jeu en recherchant dans le message
+    // Vérifier si c'est la fin du jeu
     if (returnCode == SERVER_ERROR || returnCode == PARAM_ERROR) {
-        printf("Game has ended or error occurred. Return code: 0x%x\n", returnCode);
+        printf("Game end or error: 0x%x\n", returnCode);
         
-        // Si le message contient "Total score" ou "winner", c'est une fin normale de partie
-        if (myMoveResult.message && 
-            (strstr(myMoveResult.message, "Total score") || strstr(myMoveResult.message, "winner"))) {
+        // Détecter la fin de partie dans le message
+        if (myMoveResult.message && (
+            strstr(myMoveResult.message, "Total score") || 
+            strstr(myMoveResult.message, "winner") ||
+            strstr(myMoveResult.message, "Final Score"))) {
             
             printf("\n==================================================\n");
-            printf("              RÉSULTAT DE LA PARTIE               \n");
+            printf("           RÉSULTAT FINAL DÉTECTÉ                 \n");
             printf("==================================================\n");
             printf("%s\n", myMoveResult.message);
             printf("==================================================\n\n");
             
-            // Même si c'est une fin de partie, on retourne SERVER_ERROR pour indiquer au main de terminer
-            cleanupMoveResult(&myMoveResult);
-            return SERVER_ERROR;
+            // Noter que le jeu est terminé
+            state->lastTurn = 2;  // 2 = jeu terminé complètement
         }
         
-        if (myMoveResult.opponentMessage) {
-            printf("Server message: %s\n", myMoveResult.opponentMessage);
-        }
-        if (myMoveResult.message) {
-            printf("Message: %s\n", myMoveResult.message);
-        }
         cleanupMoveResult(&myMoveResult);
         return returnCode;
     }
@@ -399,54 +425,46 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
         return returnCode;
     }
     
-    // CORRECTION: Adapter la valeur de cardDrawnThisTurn en fonction de l'action et du résultat
-    bool needSecondCard = false;
-    
     // Traite le résultat de l'action
     switch (myMove.action) {
         case CLAIM_ROUTE:
-                // MODIFIEZ CETTE PARTIE POUR VÉRIFIER L'ÉTAT AVANT LA MISE À JOUR
-                if (myMoveResult.state == NORMAL_MOVE) {
-                    // Met à jour notre état après avoir pris une route
-                    addClaimedRoute(state, myMove.claimRoute.from, myMove.claimRoute.to);
-                    
-                    // Trouve la longueur de la route
-                    int routeLength = 0;
-                    for (int i = 0; i < state->nbTracks; i++) {
-                        if ((state->routes[i].from == myMove.claimRoute.from && state->routes[i].to == myMove.claimRoute.to) ||
-                            (state->routes[i].from == myMove.claimRoute.to && state->routes[i].to == myMove.claimRoute.from)) {
-                            routeLength = state->routes[i].length;
-                            break;
-                        }
+            if (myMoveResult.state == NORMAL_MOVE) {
+                addClaimedRoute(state, myMove.claimRoute.from, myMove.claimRoute.to);
+                
+                // Trouve la longueur de la route
+                int routeLength = 0;
+                for (int i = 0; i < state->nbTracks; i++) {
+                    if ((state->routes[i].from == myMove.claimRoute.from && state->routes[i].to == myMove.claimRoute.to) ||
+                        (state->routes[i].from == myMove.claimRoute.to && state->routes[i].to == myMove.claimRoute.from)) {
+                        routeLength = state->routes[i].length;
+                        break;
                     }
-                    
-                    // Retire les cartes utilisées
-                    removeCardsForRoute(state, myMove.claimRoute.color, routeLength, myMove.claimRoute.nbLocomotives);
-                    printf("Successfully claimed route\n");
-                } else {
-                    printf("AVERTISSEMENT: Action CLAIM_ROUTE non confirmée par le serveur, état: %d\n", myMoveResult.state);
                 }
-                // Après une prise de route, le tour est terminé
-                cardDrawnThisTurn = 0;
-                break;
+                
+                // Retire les cartes utilisées
+                removeCardsForRoute(state, myMove.claimRoute.color, routeLength, myMove.claimRoute.nbLocomotives);
+                printf("Route claimed successfully\n");
+            } else {
+                printf("WARNING: CLAIM_ROUTE not confirmed by server, state: %d\n", myMoveResult.state);
+            }
+            cardDrawnThisTurn = 0;
+            break;
             
         case DRAW_CARD:
             // Ajoute la carte piochée à notre main
             addCardToHand(state, myMove.drawCard);
-            printf("Successfully drew visible card\n");
+            printf("Card drawn successfully\n");
             
             // Si c'est une locomotive visible, le tour est terminé
             if (myMove.drawCard == LOCOMOTIVE) {
                 printf("Drew a locomotive - turn ends\n");
                 cardDrawnThisTurn = 0;
             } else {
-                // Sinon, on marque qu'on a pioché une carte et on pourra en piocher une seconde
-                if (cardDrawnThisTurn == 0) {  // Si c'est la première carte du tour
-                    printf("Drew a non-locomotive card - can draw a second card\n");
-                    needSecondCard = true;
-                    cardDrawnThisTurn = 1;
+                // Sinon, on peut piocher une seconde carte
+                if (cardDrawnThisTurn == 0) {
+                    printf("Drew non-locomotive card - can draw second card\n");
+                    cardDrawnThisTurn = myMoveResult.replay ? 1 : 0;
                 } else {
-                    // C'était la seconde carte, le tour est terminé
                     printf("Drew second card - turn ends\n");
                     cardDrawnThisTurn = 0;
                 }
@@ -456,37 +474,25 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
         case DRAW_BLIND_CARD:
             // Ajoute la carte piochée à notre main
             addCardToHand(state, myMoveResult.card);
-            printf("Successfully drew blind card: ");
-            printCardName(myMoveResult.card);
+            printf("Drew blind card: %d\n", myMoveResult.card);
             
-            // Si on a pioché une locomotive aveugle, on ne piochera pas de seconde carte
-            if (myMoveResult.card == LOCOMOTIVE && myMoveResult.replay == false) {
-                printf("Blind card is a locomotive that doesn't allow a second draw - turn ends\n");
+            // Gestion du tour en fonction de la réponse du serveur
+            if (myMoveResult.card == LOCOMOTIVE && !myMoveResult.replay) {
+                printf("Blind card is a locomotive that doesn't allow second draw\n");
                 cardDrawnThisTurn = 0;
             } else {
-                // Pour les autres cartes ou si le serveur indique explicitement qu'on peut rejouer
-                if (cardDrawnThisTurn == 0 && myMoveResult.replay) {  // Si c'est la première carte du tour
-                    printf("Drew blind card - can draw a second card\n");
-                    needSecondCard = true;
+                if (cardDrawnThisTurn == 0 && myMoveResult.replay) {
+                    printf("Can draw a second card\n");
                     cardDrawnThisTurn = 1;
                 } else {
-                    // C'était la seconde carte ou le serveur n'autorise pas de seconde carte
-                    printf("Drew blind card - turn ends\n");
+                    printf("Turn ends\n");
                     cardDrawnThisTurn = 0;
                 }
             }
             break;
             
         case DRAW_OBJECTIVES:
-            // CORRECTION: Les objectifs nécessitent une étape supplémentaire
-            // Le tour n'est pas terminé juste après avoir pioché les objectifs
-            
-            // Affiche les objectifs reçus
-            printf("Received objectives, now choosing which to keep\n");
-            for (int i = 0; i < 3; i++) {
-                printf("Objective %d: ", i+1);
-                printObjective(myMoveResult.objectives[i]);
-            }
+            printf("Received objectives to choose from\n");
             
             // Choisit quels objectifs garder
             bool chooseObjectives[3] = {true, true, true};
@@ -494,7 +500,7 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
             
             // Prépare la réponse
             MoveData chooseMove;
-            MoveResult chooseMoveResult;
+            MoveResult chooseMoveResult = {0};
             
             chooseMove.action = CHOOSE_OBJECTIVES;
             chooseMove.chooseObjectives[0] = chooseObjectives[0];
@@ -503,20 +509,15 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
             
             // Compte combien d'objectifs nous gardons
             int objectivesToKeep = 0;
-            for (int i = 0; i < 3; i++) {
-                if (chooseObjectives[i]) objectivesToKeep++;
-            }
-            
-            // Crée un tableau des objectifs choisis
             Objective chosenObjectives[3];
             int idx = 0;
             for (int i = 0; i < 3; i++) {
                 if (chooseObjectives[i]) {
+                    objectivesToKeep++;
                     chosenObjectives[idx++] = myMoveResult.objectives[i];
                 }
             }
             
-            // Libère la mémoire
             cleanupMoveResult(&myMoveResult);
             
             // Envoie les choix
@@ -531,15 +532,14 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
             // Ajoute les objectifs choisis à notre état
             addObjectives(state, chosenObjectives, objectivesToKeep);
             
-            printf("Successfully chose objectives\n");
+            printf("Chose %d objectives\n", objectivesToKeep);
             cleanupMoveResult(&chooseMoveResult);
             
-            // Après avoir choisi les objectifs, le tour est terminé
             cardDrawnThisTurn = 0;
             break;
     }
     
-    // Libère la mémoire si ce n'est pas déjà fait (pour DRAW_OBJECTIVES, c'est déjà fait)
+    // Libère la mémoire si ce n'est pas déjà fait
     if (myMove.action != DRAW_OBJECTIVES) {
         cleanupMoveResult(&myMoveResult);
     }
@@ -547,84 +547,65 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
     // Met à jour la connectivité des villes après notre action
     updateCityConnectivity(state);
     
-    // CORRECTION: Si ce n'est pas la fin du tour et qu'on doit piocher une seconde carte
-    // CORRECTION: Si ce n'est pas la fin du tour et qu'on doit piocher une seconde carte
-// Dans player.c - Modification de la fonction playTurn
-
-// CORRECTION: Si ce n'est pas la fin du tour et qu'on doit piocher une seconde carte
-if (needSecondCard) {
-    printf("\nNow drawing a second card for this turn\n");
-    
-    // IMPORTANT: Mettre à jour l'état du plateau avant de piocher la seconde carte
-    BoardState boardState;
-    ResultCode updateResult = getBoardState(&boardState);
-    if (updateResult != ALL_GOOD) {
-        printf("Error getting updated board state before second card: 0x%x\n", updateResult);
-        return updateResult;
-    }
-    
-    // Mettre à jour les cartes visibles dans notre état
-    for (int i = 0; i < 5; i++) {
-        state->visibleCards[i] = boardState.card[i];
-    }
-    
-    // Réinitialiser la variable MoveData pour la seconde carte
-    MoveData secondCardMove;
-    MoveResult secondCardResult = {0};
-    
-    // Pour la seconde carte, on ne peut pas prendre de locomotive visible
-    // Soit une carte visible non-locomotive, soit une carte aveugle
-    
-    // Vérifier s'il y a des cartes visibles non-locomotive
-    CardColor cardToDraw = (CardColor)-1;
-    for (int i = 0; i < 5; i++) {
-        if (state->visibleCards[i] != LOCOMOTIVE && state->visibleCards[i] != NONE) {
-            cardToDraw = state->visibleCards[i];
-            break;
+    // Si on doit piocher une seconde carte
+    if (cardDrawnThisTurn == 1) {
+        printf("\nNow drawing second card\n");
+        
+        // Mettre à jour l'état du plateau avant de piocher
+        ResultCode updateResult = getBoardState(&boardState);
+        if (updateResult != ALL_GOOD) {
+            printf("Error getting board state for second card: 0x%x\n", updateResult);
+            return updateResult;
         }
-    }
-    
-    if (cardToDraw != (CardColor)-1) {
-        // Il y a une carte visible non-locomotive disponible
-        secondCardMove.action = DRAW_CARD;
-        secondCardMove.drawCard = cardToDraw;
-        printf("Second card draw this turn - cannot draw a visible locomotive\n");
-        printf("Drawing second visible card: ");
-        printCardName(cardToDraw);
-    } else {
-        // Pas de carte visible non-locomotive, on pioche une carte aveugle
-        secondCardMove.action = DRAW_BLIND_CARD;
-        printf("Second card draw this turn - drawing blind card\n");
-    }
-    
-    // Envoyer l'action
-    returnCode = sendMove(&secondCardMove, &secondCardResult);
-    
-    if (returnCode != ALL_GOOD) {
-        printf("Error drawing second card: 0x%x\n", returnCode);
+        
+        // Mettre à jour les cartes visibles
+        for (int i = 0; i < 5; i++) {
+            state->visibleCards[i] = boardState.card[i];
+        }
+        
+        // Préparer la seconde pioche
+        MoveData secondCardMove;
+        MoveResult secondCardResult = {0};
+        
+        // Pour la seconde carte, pas de locomotive visible
+        CardColor cardToDraw = (CardColor)-1;
+        for (int i = 0; i < 5; i++) {
+            if (state->visibleCards[i] != LOCOMOTIVE && state->visibleCards[i] != NONE) {
+                cardToDraw = state->visibleCards[i];
+                break;
+            }
+        }
+        
+        if (cardToDraw != (CardColor)-1) {
+            secondCardMove.action = DRAW_CARD;
+            secondCardMove.drawCard = cardToDraw;
+            printf("Drawing second visible card: %d\n", cardToDraw);
+        } else {
+            secondCardMove.action = DRAW_BLIND_CARD;
+            printf("Drawing second blind card\n");
+        }
+        
+        // Envoyer l'action
+        returnCode = sendMove(&secondCardMove, &secondCardResult);
+        
+        if (returnCode != ALL_GOOD) {
+            printf("Error drawing second card: 0x%x\n", returnCode);
+            cleanupMoveResult(&secondCardResult);
+            return returnCode;
+        }
+        
+        // Traiter le résultat
+        if (secondCardMove.action == DRAW_CARD) {
+            addCardToHand(state, secondCardMove.drawCard);
+            printf("Second visible card drawn\n");
+        } else {
+            addCardToHand(state, secondCardResult.card);
+            printf("Second blind card drawn: %d\n", secondCardResult.card);
+        }
+        
+        cardDrawnThisTurn = 0;
         cleanupMoveResult(&secondCardResult);
-        return returnCode;
     }
     
-    // Traiter le résultat
-    if (secondCardMove.action == DRAW_CARD) {
-        addCardToHand(state, secondCardMove.drawCard);
-        printf("Successfully drew second visible card\n");
-    } else {
-        addCardToHand(state, secondCardResult.card);
-        printf("Successfully drew second blind card: ");
-        printCardName(secondCardResult.card);
-    }
-    
-    // Le tour est maintenant terminé
-    cardDrawnThisTurn = 0;
-    
-    // Nettoyer la mémoire
-    cleanupMoveResult(&secondCardResult);
-    
-    return ALL_GOOD;
-}
-
-    // Fin de la fonction
     return ALL_GOOD;
 }

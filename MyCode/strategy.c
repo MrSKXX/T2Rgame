@@ -422,41 +422,54 @@ void identifyAndPrioritizeBottlenecks(GameState* state, int* prioritizedRoutes, 
 }
 
 // Détermine la couleur optimale pour prendre une route
+// Détermine la couleur optimale pour prendre une route
 CardColor determineOptimalColor(GameState* state, int routeIndex) {
     if (routeIndex < 0 || routeIndex >= state->nbTracks) {
-        return NONE;
+        printf("ERREUR: Index de route invalide dans determineOptimalColor: %d\n", routeIndex);
+        return RED; // Valeur par défaut sécurisée
     }
     
     CardColor routeColor = state->routes[routeIndex].color;
     CardColor secondColor = state->routes[routeIndex].secondColor;
     int length = state->routes[routeIndex].length;
     
+    printf("DÉTERMINATION COULEUR pour route %d->%d: Longueur %d, Couleur %d, SecondColor %d\n", 
+           state->routes[routeIndex].from, state->routes[routeIndex].to, 
+           length, routeColor, secondColor);
+    
     // Si c'est une route colorée (non grise)
     if (routeColor != LOCOMOTIVE) {
+        // Vérifier si nous avons assez de cartes de la couleur principale
         if (state->nbCardsByColor[routeColor] >= length) {
+            printf("  CHOIX: Couleur principale %d (assez de cartes)\n", routeColor);
             return routeColor; // Assez de cartes de cette couleur
         }
         
         // S'il y a une couleur alternative
         if (secondColor != NONE && state->nbCardsByColor[secondColor] >= length) {
+            printf("  CHOIX: Couleur secondaire %d (assez de cartes)\n", secondColor);
             return secondColor;
         }
         
         // Si on peut compléter avec des locomotives
         if (state->nbCardsByColor[routeColor] + state->nbCardsByColor[LOCOMOTIVE] >= length) {
+            printf("  CHOIX: Couleur principale %d avec locomotives\n", routeColor);
             return routeColor;
         }
         
         if (secondColor != NONE && 
             state->nbCardsByColor[secondColor] + state->nbCardsByColor[LOCOMOTIVE] >= length) {
+            printf("  CHOIX: Couleur secondaire %d avec locomotives\n", secondColor);
             return secondColor;
         }
         
         // Dernier recours: utiliser uniquement des locomotives
         if (state->nbCardsByColor[LOCOMOTIVE] >= length) {
+            printf("  CHOIX: Toutes locomotives\n");
             return LOCOMOTIVE;
         }
         
+        printf("  ERREUR: Pas assez de cartes! Retourne NONE\n");
         return NONE; // Pas assez de cartes
     }
     
@@ -464,47 +477,45 @@ CardColor determineOptimalColor(GameState* state, int routeIndex) {
     CardColor bestColor = NONE;
     int bestColorCount = 0;
     
-    for (int c = 1; c < 9; c++) { // 1-8 = couleurs, 9 = locomotive
-        if (state->nbCardsByColor[c] > bestColorCount) {
-            bestColorCount = state->nbCardsByColor[c];
+    for (int c = PURPLE; c <= GREEN; c++) { // 1-8 = couleurs, exclure LOCOMOTIVE
+        int count = state->nbCardsByColor[c];
+        printf("  Évaluation couleur %d: %d cartes\n", c, count);
+        
+        if (count > bestColorCount) {
+            bestColorCount = count;
             bestColor = c;
         }
     }
     
     // Si la meilleure couleur suffit
-    if (bestColorCount >= length) {
+    if (bestColor != NONE && bestColorCount >= length) {
+        printf("  CHOIX (gris): Couleur %d (assez de cartes: %d)\n", bestColor, bestColorCount);
         return bestColor;
     }
     
     // Compléter avec des locomotives
-    if (bestColorCount + state->nbCardsByColor[LOCOMOTIVE] >= length) {
+    if (bestColor != NONE && bestColorCount + state->nbCardsByColor[LOCOMOTIVE] >= length) {
+        printf("  CHOIX (gris): Couleur %d avec locomotives\n", bestColor);
         return bestColor;
     }
     
     // Si uniquement des locomotives suffisent
     if (state->nbCardsByColor[LOCOMOTIVE] >= length) {
+        printf("  CHOIX (gris): Toutes locomotives\n");
         return LOCOMOTIVE;
     }
     
-
-    if (state->nbCardsByColor[LOCOMOTIVE] > 0) {
-        printf("CORRECTION: Aucune couleur optimale trouvée, utilisation de locomotives\n");
-        return LOCOMOTIVE;
-    } else {
-        // Trouver n'importe quelle couleur dont nous avons au moins une carte
-        for (int c = 1; c < 9; c++) {
-            if (state->nbCardsByColor[c] > 0) {
-                printf("CORRECTION: Utilisation de la couleur %d par défaut\n", c);
-                return c;
-            }
+    // Fallback: chercher n'importe quelle couleur dont on a des cartes
+    for (int c = PURPLE; c <= GREEN; c++) {
+        if (state->nbCardsByColor[c] > 0) {
+            printf("  CHOIX FALLBACK: Couleur %d (quelques cartes)\n", c);
+            return c;
         }
-        
-        printf("ALERTE: Impossible de déterminer une couleur valide, aucune carte disponible\n");
-        return RED; // Valeur par défaut pour éviter NONE
     }
-
-
-    return NONE; // Pas assez de cartes
+    
+    // Dernier recours vraiment désespéré
+    printf("  CHOIX DÉSESPÉRÉ: RED par défaut\n");
+    return RED; // Pour éviter de retourner NONE
 }
 
 // Évalue l'efficacité d'utilisation de nos cartes
@@ -1993,7 +2004,14 @@ int superAdvancedStrategy(GameState* state, MoveData* moveData) {
    
    int numPossibleRoutes = findPossibleRoutes(state, possibleRoutes, possibleColors, possibleLocomotives);
    printf("Trouvé %d routes possibles à prendre\n", numPossibleRoutes);
-   
+   // Vérification de la validité des couleurs retournées
+    for (int i = 0; i < numPossibleRoutes; i++) {
+        if (possibleColors[i] < 1 || possibleColors[i] > 9) {
+            printf("ERREUR: Couleur invalide %d pour route %d, correction à 6 (BLACK)\n", 
+                possibleColors[i], possibleRoutes[i]);
+            possibleColors[i] = 6;  // BLACK est généralement 6
+        }
+    }
    // 7. Forcer prise de route après trop de pioches consécutives
    if (consecutiveDraws >= 4 && numPossibleRoutes > 0) {
        printf("FORCE MAJEURE: Trop de pioches consécutives (%d), forcer la prise d'une route\n", consecutiveDraws);
@@ -2010,6 +2028,11 @@ case COMPLETE_OBJECTIVES: {
                 moveData->action = CLAIM_ROUTE;
                 moveData->claimRoute.from = criticalRoutes[i].from;
                 moveData->claimRoute.to = criticalRoutes[i].to;
+                // Vérification de validité de la couleur
+                if (criticalRoutes[i].color < 1 || criticalRoutes[i].color > 9) {
+                    printf("ERREUR: Couleur invalide %d pour route critique, correction à 6 (BLACK)\n", criticalRoutes[i].color);
+                    criticalRoutes[i].color = 6;  // BLACK est généralement 6
+                }
                 moveData->claimRoute.color = criticalRoutes[i].color;
                 moveData->claimRoute.nbLocomotives = criticalRoutes[i].nbLocomotives;
                 
@@ -2237,6 +2260,11 @@ case COMPLETE_OBJECTIVES: {
                 moveData->action = CLAIM_ROUTE;
                 moveData->claimRoute.from = from;
                 moveData->claimRoute.to = to;
+                // Vérification de validité de la couleur
+                if (color < 1 || color > 9) {
+                    printf("ERREUR: Couleur invalide %d pour construction réseau, correction à 6 (BLACK)\n", color);
+                    color = 6;  // BLACK est généralement 6
+                }
                 moveData->claimRoute.color = color;
                 moveData->claimRoute.nbLocomotives = nbLocomotives;
                 
@@ -2331,6 +2359,11 @@ case COMPLETE_OBJECTIVES: {
                    moveData->action = CLAIM_ROUTE;
                    moveData->claimRoute.from = from;
                    moveData->claimRoute.to = to;
+                    // Vérification de validité de la couleur
+                    if (color < 1 || color > 9) {
+                        printf("ERREUR: Couleur invalide %d pour blocage adversaire, correction à 6 (BLACK)\n", color);
+                        color = 6;  // BLACK est généralement 6
+                    }
                    moveData->claimRoute.color = color;
                    moveData->claimRoute.nbLocomotives = nbLocomotives;
                    
@@ -2378,106 +2411,137 @@ case COMPLETE_OBJECTIVES: {
            break;
        }
        
-       case BUILD_NETWORK: {
-           if (numPossibleRoutes > 0) {
-               // Privilégier les routes longues pour maximiser les points
-               int bestRouteIndex = -1;
-               int bestScore = -1;
-               
-               for (int i = 0; i < numPossibleRoutes; i++) {
-                   int routeIndex = possibleRoutes[i];
-                   if (routeIndex < 0 || routeIndex >= state->nbTracks) continue;
+case BUILD_NETWORK: {
+    if (numPossibleRoutes > 0) {
+        // Privilégier les routes longues pour maximiser les points
+        int bestRouteIndex = 0; // Utiliser la première route possible par défaut
+        int bestScore = -1;
+        
+        // Calculer les scores pour chaque route possible
+        for (int i = 0; i < numPossibleRoutes; i++) {
+            int routeIndex = possibleRoutes[i];
+            if (routeIndex < 0 || routeIndex >= state->nbTracks) continue;
+            
+            int length = state->routes[routeIndex].length;
+            int score = 0;
+            
+            // Table de points modifiée pour fortement favoriser les routes longues
+            switch (length) {
+                case 1: score = 1; break;
+                case 2: score = 5; break;
+                case 3: score = 20; break;
+                case 4: score = 50; break;
+                case 5: score = 100; break;
+                case 6: score = 150; break;
+                default: score = 0;
+            }
+            
+            // Ne pas prendre de route courte en début/milieu de partie sauf urgence
+            if (length <= 2 && phase < PHASE_LATE && state->turnCount < 15 && consecutiveDraws < 4) {
+                score -= 50;
+            }
+            
+            // Bonus pour connexion à notre réseau
+            int from = state->routes[routeIndex].from;
+            int to = state->routes[routeIndex].to;
+            bool connectsToNetwork = false;
+            
+            for (int j = 0; j < state->nbClaimedRoutes; j++) {
+                int claimedRouteIndex = state->claimedRoutes[j];
+                if (claimedRouteIndex < 0 || claimedRouteIndex >= state->nbTracks) continue;
+                
+                if (state->routes[claimedRouteIndex].from == from || 
+                    state->routes[claimedRouteIndex].to == from ||
+                    state->routes[claimedRouteIndex].from == to || 
+                    state->routes[claimedRouteIndex].to == to) {
+                    connectsToNetwork = true;
+                    break;
+                }
+            }
+            
+            if (connectsToNetwork) {
+                score += 30;
+            }
+            
+            // Connexion directe pour un objectif?
+            for (int j = 0; j < state->nbObjectives; j++) {
+                if (!isObjectiveCompleted(state, state->objectives[j])) {
+                    // Convertir en int pour la comparaison
+                    int objFrom = (int)state->objectives[j].from;
+                    int objTo = (int)state->objectives[j].to;
+                    
+                    if ((objFrom == from && objTo == to) ||
+                        (objFrom == to && objTo == from)) {
+                        score += 1000;
+                    }
+                }
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestRouteIndex = i;
+            }
+        }
+        
+        // IMPORTANT: Vérifier que l'index est valide avant d'utiliser la route
+        if (bestRouteIndex < 0 || bestRouteIndex >= numPossibleRoutes) {
+            printf("ERREUR CRITIQUE: bestRouteIndex invalide (%d), utilisation du premier (0)\n", 
+                   bestRouteIndex);
+            bestRouteIndex = 0;  // Utiliser la première route en cas d'erreur
+        }
+        
+        // Seuil minimal - ne pas prendre de routes trop tôt à moins qu'elles soient excellentes
+        if (bestScore < 20 && phase == PHASE_EARLY && consecutiveDraws < 4 && !state->lastTurn) {
+            printf("Toutes les routes ont un score faible (%d), continuer à piocher\n", bestScore);
+            priority = DRAW_CARDS;
+            break;
+        }
+        
+        // VÉRIFICATION CRITIQUE: s'assurer que les routes existent et sont valides
+        if (possibleRoutes[bestRouteIndex] < 0 || possibleRoutes[bestRouteIndex] >= state->nbTracks) {
+            printf("ERREUR CRITIQUE: Index de route invalide: %d\n", possibleRoutes[bestRouteIndex]);
+            moveData->action = DRAW_BLIND_CARD;
+            consecutiveDraws++;
+            return 1;
+        }
+        
+        // Assurer que l'on prend une route valide, qui est dans les possibles
+        int routeIndex = possibleRoutes[bestRouteIndex];
+        int from = state->routes[routeIndex].from;
+        int to = state->routes[routeIndex].to;
+        CardColor color = possibleColors[bestRouteIndex];
+        int nbLocomotives = possibleLocomotives[bestRouteIndex];
+        
+        printf("DEBUG ROUTES: Choisie route %d -> %d (index %d, couleur %d)\n", 
+               from, to, routeIndex, color);
+        
+        moveData->action = CLAIM_ROUTE;
+        moveData->claimRoute.from = from;
+        moveData->claimRoute.to = to;
+        moveData->claimRoute.color = color;
+        moveData->claimRoute.nbLocomotives = nbLocomotives;
+        
+        printf("Décision: Construire réseau, route %d -> %d\n", from, to);
+        
+        // Vérification finale de la validité des valeurs
+        if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities || 
+            color < PURPLE || color > LOCOMOTIVE) {
+            printf("ERREUR CRITIQUE DE ROUTE: Valeurs invalides détectées (%d->%d, couleur %d)\n", 
+                   from, to, color);
                    
-                   int length = state->routes[routeIndex].length;
-                   int score = 0;
-                   
-                   // Table de points modifiée pour fortement favoriser les routes longues
-                   switch (length) {
-                       case 1: score = 1; break;
-                       case 2: score = 5; break;
-                       case 3: score = 20; break;
-                       case 4: score = 50; break;
-                       case 5: score = 100; break;
-                       case 6: score = 150; break;
-                       default: score = 0;
-                   }
-                   
-                   // Ne pas prendre de route courte en début/milieu de partie sauf urgence
-                   if (length <= 2 && phase < PHASE_LATE && state->turnCount < 15 && consecutiveDraws < 4) {
-                       score -= 50;
-                   }
-                   
-                   // Bonus pour connexion à notre réseau
-                   int from = state->routes[routeIndex].from;
-                   int to = state->routes[routeIndex].to;
-                   bool connectsToNetwork = false;
-                   
-                   for (int j = 0; j < state->nbClaimedRoutes; j++) {
-                       int claimedRouteIndex = state->claimedRoutes[j];
-                       if (claimedRouteIndex < 0 || claimedRouteIndex >= state->nbTracks) continue;
-                       
-                       if (state->routes[claimedRouteIndex].from == from || 
-                           state->routes[claimedRouteIndex].to == from ||
-                           state->routes[claimedRouteIndex].from == to || 
-                           state->routes[claimedRouteIndex].to == to) {
-                           connectsToNetwork = true;
-                           break;
-                       }
-                   }
-                   
-                   if (connectsToNetwork) {
-                       score += 30;
-                   }
-                   
-                   // Connexion directe pour un objectif?
-                   for (int j = 0; j < state->nbObjectives; j++) {
-                       if (!isObjectiveCompleted(state, state->objectives[j])) {
-                           // Convertir en int pour la comparaison
-                           int objFrom = (int)state->objectives[j].from;
-                           int objTo = (int)state->objectives[j].to;
-                           
-                           if ((objFrom == from && objTo == to) ||
-                               (objFrom == to && objTo == from)) {
-                               score += 1000;
-                           }
-                       }
-                   }
-                   
-                   if (score > bestScore) {
-                       bestScore = score;
-                       bestRouteIndex = i;
-                   }
-               }
-               
-               // Seuil minimal - ne pas prendre de routes trop tôt à moins qu'elles soient excellentes
-               if (bestScore < 20 && phase == PHASE_EARLY && consecutiveDraws < 4 && !state->lastTurn) {
-                   printf("Toutes les routes ont un score faible (%d), continuer à piocher\n", bestScore);
-                   priority = DRAW_CARDS;
-                   break;
-               }
-               
-               int routeIndex = possibleRoutes[bestRouteIndex];
-               int from = state->routes[routeIndex].from;
-               int to = state->routes[routeIndex].to;
-               CardColor color = possibleColors[bestRouteIndex];
-               int nbLocomotives = possibleLocomotives[bestRouteIndex];
-               
-               moveData->action = CLAIM_ROUTE;
-               moveData->claimRoute.from = from;
-               moveData->claimRoute.to = to;
-               moveData->claimRoute.color = color;
-               moveData->claimRoute.nbLocomotives = nbLocomotives;
-               
-               printf("Décision: Construire réseau, route %d -> %d\n", from, to);
-               
-               consecutiveDraws = 0;
-               return 1;
-           } else {
-               priority = DRAW_CARDS;
-               printf("Priorité modifiée: PIOCHER DES CARTES (aucune route possible)\n");
-           }
-           break;
-       }
+            // Forcer pioche de carte au lieu de faire crash le jeu
+            moveData->action = DRAW_BLIND_CARD;
+            printf("CORRECTION: pioche carte aveugle à la place d'une route invalide\n");
+        }
+        
+        consecutiveDraws = 0;
+        return 1;
+    } else {
+        priority = DRAW_CARDS;
+        printf("Priorité modifiée: PIOCHER DES CARTES (aucune route possible)\n");
+    }
+    break;
+}
        
        case DRAW_CARDS: {
            // Analyse des besoins en cartes pour les objectifs prioritaires

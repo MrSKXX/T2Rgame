@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>  // Pour sleep()
+#include <unistd.h>  // Pour usleep()
 #include <stdbool.h>
 #include <stdarg.h>   // Pour va_list
 #include "../tickettorideapi/ticketToRide.h"
@@ -16,6 +16,24 @@
 
 // Niveau de débogage
 #define DEBUG_LEVEL 0
+
+
+// Version améliorée pour afficher les résultats finaux
+void printGameResult(int finalScore, char* finalResultsMessage) {
+    printf("\n==================================================\n");
+    printf("              RÉSULTATS FINAUX                    \n");
+    printf("==================================================\n");
+    
+    if (finalResultsMessage && strlen(finalResultsMessage) > 0) {
+        printf("%s\n", finalResultsMessage);
+    } else {
+        printf("Impossible de récupérer les résultats détaillés du serveur.\n");
+    }
+    
+    // Affichage du score calculé localement
+    printf("Notre score calculé localement: %d\n", finalScore);
+    printf("==================================================\n\n");
+}
 
 // Fonction utilitaire pour afficher les messages de débogage selon le niveau
 void debugPrint(int level, const char* format, ...) {
@@ -55,19 +73,139 @@ bool isGameOver(char* message) {
             strstr(message, "Total score") != NULL || 
             strstr(message, "GAME OVER") != NULL ||
             strstr(message, "last turn has ended") != NULL ||
+            strstr(message, "Bad protocol") != NULL ||
             (strstr(message, "Player") != NULL && strstr(message, "has the longest path") != NULL) ||
             strstr(message, "Final Score") != NULL);
 }
 
-// Version simplifiée pour afficher les résultats finaux
-void printGameResult(int finalScore) {
-    printf("\n==================================================\n");
-    printf("              RESULTAT DE LA PARTIE               \n");
-    printf("==================================================\n");
-    printf("Notre score final: %d\n", finalScore);
-    printf("Pour connaître le score de l'adversaire et le gagnant,\n");
-    printf("consultez le plateau final affiché ci-dessus.\n");
-    printf("==================================================\n\n");
+// Fonction pour capturer les résultats finaux de façon agressive
+// Fonction pour capturer les résultats finaux de façon agressive
+// Fonction pour capturer les résultats finaux de façon agressive
+// Fonction pour capturer les résultats finaux de façon agressive
+// Fonction pour capturer les résultats finaux de façon agressive
+// Fonction pour capturer les résultats finaux de façon agressive
+// Fonction pour capturer les résultats finaux de façon agressive
+bool captureEndGameResults(char* finalResultsMessage, size_t messageSize) {
+    bool resultsFound = false;
+    MoveResult moveResult = {0};
+    
+    // Afficher le plateau final plusieurs fois pour s'assurer qu'il est mis à jour
+    for (int i = 0; i < 3; i++) {
+        printBoard();
+        usleep(200000);
+    }
+    
+    // Essayer d'abord getMove pour voir si on obtient les résultats
+    printf("Tentative initiale avec getMove...\n");
+    MoveData dummyMove;
+    moveResult.message = NULL;
+    ResultCode getCode = getMove(&dummyMove, &moveResult);
+    
+    // Si getMove réussit et contient les objectifs, c'est parfait
+    if (getCode == ALL_GOOD && moveResult.message && 
+        strstr(moveResult.message, "Objective") != NULL) {
+        
+        printf("Résultats obtenus via getMove!\n");
+        strncpy(finalResultsMessage, moveResult.message, messageSize-1);
+        resultsFound = true;
+    }
+    // Si getMove indique que c'est notre tour, essayer de jouer un coup
+    else if (moveResult.message && strstr(moveResult.message, "It's our turn")) {
+        printf("Le serveur indique que c'est notre tour, tentative avec sendMove...\n");
+        
+        // Libérer la mémoire du message d'erreur
+        if (moveResult.message) free(moveResult.message);
+        if (moveResult.opponentMessage) free(moveResult.opponentMessage);
+        
+        // Essayer plusieurs types de coups
+        MoveData moves[4];
+        
+        // Préparer différentes actions à essayer
+        moves[0].action = DRAW_BLIND_CARD;
+        
+        moves[1].action = DRAW_CARD;
+        moves[1].drawCard = 1;
+        
+        moves[2].action = DRAW_OBJECTIVES;
+        
+        moves[3].action = CLAIM_ROUTE;
+        moves[3].claimRoute.from = 0;
+        moves[3].claimRoute.to = 1;
+        moves[3].claimRoute.color = 1;
+        moves[3].claimRoute.nbLocomotives = 0;
+        
+        for (int i = 0; i < 4; i++) {
+            printf("Tentative sendMove avec action %d...\n", i);
+            moveResult.message = NULL;
+            
+            ResultCode sendCode = sendMove(&moves[i], &moveResult);
+            
+            // Si le coup réussit et contient les résultats
+            if (sendCode == ALL_GOOD && moveResult.message) {
+                if (strstr(moveResult.message, "Objective") != NULL ||
+                    strstr(moveResult.message, "score") != NULL ||
+                    strstr(moveResult.message, "Score") != NULL ||
+                    strstr(moveResult.message, "winner") != NULL ||
+                    strstr(moveResult.message, "longest path") != NULL ||
+                    strstr(moveResult.message, "Total score") != NULL) {
+                    
+                    printf("Résultats obtenus via sendMove (action %d)!\n", i);
+                    strncpy(finalResultsMessage, moveResult.message, messageSize-1);
+                    resultsFound = true;
+                    
+                    if (moveResult.message) free(moveResult.message);
+                    if (moveResult.opponentMessage) free(moveResult.opponentMessage);
+                    
+                    break;
+                }
+            }
+            
+            if (moveResult.message) free(moveResult.message);
+            if (moveResult.opponentMessage) free(moveResult.opponentMessage);
+            
+            usleep(200000);
+        }
+        
+        // Si aucun move ne fonctionne, réessayer un getMove après avoir joué
+        if (!resultsFound) {
+            printf("Aucun résultat via sendMove, nouvel essai getMove...\n");
+            
+            moveResult.message = NULL;
+            getMove(&dummyMove, &moveResult);
+            
+            if (moveResult.message && 
+                (strstr(moveResult.message, "Objective") != NULL ||
+                 strstr(moveResult.message, "score") != NULL ||
+                 strstr(moveResult.message, "Score") != NULL ||
+                 strstr(moveResult.message, "winner") != NULL ||
+                 strstr(moveResult.message, "Total score") != NULL)) {
+                
+                printf("Résultats obtenus via getMove après sendMove!\n");
+                strncpy(finalResultsMessage, moveResult.message, messageSize-1);
+                resultsFound = true;
+            }
+            
+            if (moveResult.message) free(moveResult.message);
+            if (moveResult.opponentMessage) free(moveResult.opponentMessage);
+        }
+    }
+    else {
+        // Libérer la mémoire du message d'erreur
+        if (moveResult.message) free(moveResult.message);
+        if (moveResult.opponentMessage) free(moveResult.opponentMessage);
+    }
+    
+    // Si nous n'avons toujours rien trouvé, utiliser un message par défaut
+    if (!resultsFound) {
+        printf("Aucun résultat détaillé trouvé, utilisation des informations du plateau...\n");
+        sprintf(finalResultsMessage, "Résultats disponibles uniquement sur le plateau affiché ci-dessus.\n");
+        resultsFound = true;
+        
+        // Afficher une dernière fois le plateau
+        printBoard();
+    }
+    
+    return resultsFound;
 }
 
 int main() {
@@ -116,6 +254,7 @@ int main() {
     bool firstTurn = true;
     int consecutiveErrors = 0;   // Compteur d'erreurs consécutives
     int cardDrawnThisTurn = 0;   // Pour suivre si on a déjà pioché une carte ce tour-ci
+    char lastErrorMessage[1024] = {0};
     
     // D'après les tests, il semble que:
     // - Si starter == 0, c'est à nous de commencer
@@ -191,15 +330,16 @@ int main() {
                 playCode = playTurn(&gameState, strategy);
             }
             
-                if (gameState.nbClaimedRoutes > MAX_ROUTES || gameState.nbCards > MAX_CARDS || 
-        gameState.nbObjectives > MAX_OBJECTIVES) {
-        printf("ERREUR CRITIQUE: État du jeu corrompu après notre tour\n");
-        printf("Routes: %d/%d, Cartes: %d/%d, Objectifs: %d/%d\n", 
-               gameState.nbClaimedRoutes, MAX_ROUTES, 
-               gameState.nbCards, MAX_CARDS, 
-               gameState.nbObjectives, MAX_OBJECTIVES);
-        // Vous pourriez vouloir corriger l'état ici ou simplement continuer
-    }
+            // Vérification de l'intégrité de l'état du jeu
+            if (gameState.nbClaimedRoutes > MAX_ROUTES || gameState.nbCards > MAX_CARDS || 
+                gameState.nbObjectives > MAX_OBJECTIVES) {
+                printf("ERREUR CRITIQUE: État du jeu corrompu après notre tour\n");
+                printf("Routes: %d/%d, Cartes: %d/%d, Objectifs: %d/%d\n", 
+                       gameState.nbClaimedRoutes, MAX_ROUTES, 
+                       gameState.nbCards, MAX_CARDS, 
+                       gameState.nbObjectives, MAX_OBJECTIVES);
+                // Vous pourriez vouloir corriger l'état ici ou simplement continuer
+            }
 
             if (playCode == ALL_GOOD) {
                 printf("Successfully played our turn\n");
@@ -222,6 +362,11 @@ int main() {
             } 
             else if (playCode == SERVER_ERROR) {
                 printf("Erreur serveur pendant notre tour: 0x%x\n", playCode);
+                
+                // Sauvegarder le message d'erreur pour l'analyse finale
+                if (moveResult.message) {
+                    strncpy(lastErrorMessage, moveResult.message, sizeof(lastErrorMessage)-1);
+                }
                 
                 // Le serveur a renvoyé une erreur - vérifier si c'est la fin de partie
                 if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
@@ -278,6 +423,11 @@ int main() {
             else if (playCode == PARAM_ERROR || playCode == OTHER_ERROR) {
                 printf("Erreur pendant notre tour: 0x%x\n", playCode);
                 
+                // Sauvegarder le message d'erreur pour l'analyse finale
+                if (moveResult.message) {
+                    strncpy(lastErrorMessage, moveResult.message, sizeof(lastErrorMessage)-1);
+                }
+                
                 // Erreur - Si fin de partie
                 if (gameState.lastTurn || gameState.opponentWagonsLeft <= 0 || gameState.wagonsLeft <= 0) {
                     printf("Fin de partie détectée. Dernière erreur: 0x%x\n", playCode);
@@ -315,7 +465,10 @@ int main() {
             else {
                 // Autre erreur
                 printf("Unknown error playing turn: 0x%x\n", playCode);
-                if (moveResult.message) printf("Message: %s\n", moveResult.message);
+                if (moveResult.message) {
+                    printf("Message: %s\n", moveResult.message);
+                    strncpy(lastErrorMessage, moveResult.message, sizeof(lastErrorMessage)-1);
+                }
                 cleanupMoveResult(&moveResult);
                 
                 // Incrémenter le compteur d'erreurs
@@ -327,7 +480,7 @@ int main() {
                 }
                 
                 // Attendre un peu et essayer l'autre joueur
-                sleep(2);
+                usleep(200000); // Remplacé sleep(2) par usleep pour être plus réactif
                 ourTurn = false;
             }
         } 
@@ -349,6 +502,9 @@ int main() {
                     if (opponentMoveResult.state == 1 || // WINNING_MOVE
                         opponentMoveResult.state == -1) { // LOOSING_MOVE
                         printf("Fin de partie signalée par le serveur! État: %d\n", opponentMoveResult.state);
+                        if (opponentMoveResult.message) {
+                            strncpy(lastErrorMessage, opponentMoveResult.message, sizeof(lastErrorMessage)-1);
+                        }
                         gameRunning = false;
                         cleanupMoveResult(&opponentMoveResult);
                         break;
@@ -359,6 +515,7 @@ int main() {
                 if (opponentMoveResult.message) {
                     if (isGameOver(opponentMoveResult.message)) {
                         printf("Fin de partie détectée dans le message de l'adversaire!\n");
+                        strncpy(lastErrorMessage, opponentMoveResult.message, sizeof(lastErrorMessage)-1);
                         gameRunning = false;
                         cleanupMoveResult(&opponentMoveResult);
                         break;
@@ -394,6 +551,11 @@ int main() {
             }
             else if (moveCode == SERVER_ERROR) {
                 printf("Erreur serveur en attendant le coup de l'adversaire: 0x%x\n", moveCode);
+                
+                // Sauvegarder le message d'erreur pour l'analyse finale
+                if (opponentMoveResult.message) {
+                    strncpy(lastErrorMessage, opponentMoveResult.message, sizeof(lastErrorMessage)-1);
+                }
                 
                 // Si le serveur indique que c'est notre tour
                 if (opponentMoveResult.message && 
@@ -444,6 +606,11 @@ int main() {
             else if (moveCode == PARAM_ERROR || moveCode == OTHER_ERROR) {
                 printf("Erreur en attendant le coup de l'adversaire: 0x%x\n", moveCode);
                 
+                // Sauvegarder le message d'erreur pour l'analyse finale
+                if (opponentMoveResult.message) {
+                    strncpy(lastErrorMessage, opponentMoveResult.message, sizeof(lastErrorMessage)-1);
+                }
+                
                 // Si le serveur indique que c'est notre tour
                 if (opponentMoveResult.message && 
                     (strstr(opponentMoveResult.message, "It's our turn") || 
@@ -482,7 +649,10 @@ int main() {
             else {
                 // Autre erreur
                 printf("Unknown error getting opponent move: 0x%x\n", moveCode);
-                if (opponentMoveResult.message) printf("Message: %s\n", opponentMoveResult.message);
+                if (opponentMoveResult.message) {
+                    printf("Message: %s\n", opponentMoveResult.message);
+                    strncpy(lastErrorMessage, opponentMoveResult.message, sizeof(lastErrorMessage)-1);
+                }
                 cleanupMoveResult(&opponentMoveResult);
                 
                 // Incrémenter le compteur d'erreurs
@@ -494,7 +664,7 @@ int main() {
                 }
                 
                 // Attendre un peu et essayer notre tour
-                sleep(2);
+                usleep(200000); // Remplacé sleep(2) par usleep pour être plus réactif
                 ourTurn = true;
             }
         }
@@ -521,25 +691,50 @@ int main() {
         if (gameState.lastTurn && !ourTurn) {
             printf("Dernier tour terminé. Fin de la partie.\n");
             gameRunning = false;
-            
-            // Afficher le plateau final
-            printf("\n\n===== PLATEAU FINAL =====\n");
-            printf("EXAMINEZ CE PLATEAU POUR VOIR LES SCORES FINAUX DES JOUEURS!\n");
-            printBoard();
-            printf("==========================\n\n");
-            
             break;
         }
         
         // Attendre un peu avant le prochain tour
-        sleep(1);
+        usleep(150000); // Remplacé sleep(1) par usleep pour être plus réactif
     }
     
     // Calculer notre score final
     int finalScore = calculateScore(&gameState);
     
+    // Afficher le plateau final
+    printf("\n\n===== PLATEAU FINAL =====\n");
+    printBoard();
+    printf("==========================\n\n");
+    
+    // Tentative agressive de récupération des résultats finaux
+    printf("\n===== FIN DE PARTIE =====\n");
+    printf("Récupération des résultats finaux...\n");
+    
+    // Pour s'assurer que le jeu est vraiment terminé
+    usleep(500000);
+    
+    // Utiliser notre nouvelle fonction spécialisée pour obtenir les résultats
+    char finalResultsMessage[2048] = {0};
+bool resultsFound = captureEndGameResults(finalResultsMessage, sizeof(finalResultsMessage));
+    if (!resultsFound && strlen(lastErrorMessage) > 0) {
+        printf("Utilisation du dernier message d'erreur comme résultat\n");
+        strncpy(finalResultsMessage, lastErrorMessage, sizeof(finalResultsMessage)-1);
+        resultsFound = true;
+    }
+    
+    // Si toujours pas de résultats, essayer d'extraire les données du plateau
+    if (!resultsFound) {
+        // Créer un message à partir des données visibles
+        snprintf(finalResultsMessage, sizeof(finalResultsMessage),
+                "Résultats extraits du plateau:\n"
+                "Notre score final (calculé): %d\n"
+                "Nombre de wagons restants: %d\n"
+                "Nombre d'objectifs complétés: %d\n",
+                finalScore, gameState.wagonsLeft, gameState.nbObjectives);
+    }
+    
     // Afficher le résultat final
-    printGameResult(finalScore);
+    printGameResult(finalScore, finalResultsMessage);
     
     // Nettoyage final
     if (gameData.gameName) free(gameData.gameName);
