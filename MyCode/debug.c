@@ -3,7 +3,6 @@
 #include "strategy.h"
 #include "rules.h"
 
-// Fonction utilitaire pour afficher les messages de débogage selon le niveau
 void debugLog(int level, const char* format, ...) {
     if (level <= DEBUG_LEVEL) {
         va_list args;
@@ -14,7 +13,6 @@ void debugLog(int level, const char* format, ...) {
     }
 }
 
-// Nouvelle fonction pour analyser les objectifs en profondeur
 void debugObjectives(GameState* state) {
     if (!state) {
         printf("ERROR: NULL state in debugObjectives\n");
@@ -42,7 +40,6 @@ void debugObjectives(GameState* state) {
         
         if (completed) continue;
         
-        // Trouver le chemin optimal
         int path[MAX_CITIES];
         int pathLength = 0;
         int distance = findShortestPath(state, from, to, path, &pathLength);
@@ -54,7 +51,6 @@ void debugObjectives(GameState* state) {
             }
             printf("\n");
             
-            // Analyser le chemin
             int routesNeeded = 0;
             int routesOwned = 0;
             int routesBlocked = 0;
@@ -96,7 +92,6 @@ void debugObjectives(GameState* state) {
                 }
             }
             
-            // Résumé de l'analyse
             printf("  Résumé: %d routes nécessaires, %d déjà prises, %d bloquées\n", 
                   routesNeeded, routesOwned, routesBlocked);
             
@@ -116,7 +111,6 @@ void debugObjectives(GameState* state) {
     printf("=========================================\n\n");
 }
 
-// Nouvelle fonction pour analyser les détails d'une route spécifique
 void debugRoute(GameState* state, int from, int to, CardColor color, int nbLocomotives) {
     if (!state) {
         printf("ERROR: NULL state in debugRoute\n");
@@ -125,7 +119,6 @@ void debugRoute(GameState* state, int from, int to, CardColor color, int nbLocom
     
     printf("\n=== ANALYSE DÉTAILLÉE DE LA ROUTE %d->%d ===\n", from, to);
     
-    // Trouver l'index de la route
     int routeIndex = -1;
     for (int i = 0; i < state->nbTracks; i++) {
         if ((state->routes[i].from == from && state->routes[i].to == to) ||
@@ -140,7 +133,6 @@ void debugRoute(GameState* state, int from, int to, CardColor color, int nbLocom
         return;
     }
     
-    // Détails de la route
     Route* route = &state->routes[routeIndex];
     printf("Route #%d: De %d à %d\n", routeIndex, route->from, route->to);
     printf("Longueur: %d\n", route->length);
@@ -152,16 +144,13 @@ void debugRoute(GameState* state, int from, int to, CardColor color, int nbLocom
     
     printf("Propriétaire: %d (0=Personne, 1=Nous, 2=Adversaire)\n", route->owner);
     
-    // Couleur choisie pour la prise
     printf("\nCouleur choisie pour prendre la route: %d\n", color);
     printf("Nombre de locomotives: %d\n", nbLocomotives);
     
-    // Vérification de la validité
     printf("\nVérification de validité:\n");
     
-    // 1. Vérifier la couleur
     bool colorValid = false;
-    if (route->color == LOCOMOTIVE) {  // Route grise
+    if (route->color == LOCOMOTIVE) {
         colorValid = true;
         printf("OK: Route grise, n'importe quelle couleur est valide\n");
     } else if (color == route->color || 
@@ -178,7 +167,6 @@ void debugRoute(GameState* state, int from, int to, CardColor color, int nbLocom
         printf(", mais %d a été choisi\n", color);
     }
     
-    // 2. Vérifier les cartes disponibles
     int colorCards = state->nbCardsByColor[color];
     int locomotives = state->nbCardsByColor[LOCOMOTIVE];
     printf("\nCartes disponibles:\n");
@@ -209,7 +197,6 @@ void debugRoute(GameState* state, int from, int to, CardColor color, int nbLocom
         }
     }
     
-    // 3. Cas spéciaux pour les routes problématiques
     if ((from == 17 && to == 22) || (from == 22 && to == 17)) {
         printf("\nATTENTION: Route spéciale Kansas City (17) - Saint Louis (22)\n");
         printf("Pour cette route, seules les couleurs BLUE (3), PURPLE (1) ou LOCOMOTIVE (9) sont autorisées\n");
