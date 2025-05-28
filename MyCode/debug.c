@@ -1,7 +1,7 @@
 #include "debug.h"
 #include "gamestate.h"
-#include "strategy.h"
 #include "rules.h"
+#include "strategy/strategy.h"
 
 void debugLog(int level, const char* format, ...) {
     if (level <= DEBUG_LEVEL) {

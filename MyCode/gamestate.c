@@ -2,7 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "gamestate.h"
-
+#include "strategy/strategy.h"
+#include "rules.h"
 void initGameState(GameState* state, GameData* gameData) {
     memset(state, 0, sizeof(GameState));
     state->nbCities = gameData->nbCities;
@@ -230,6 +231,8 @@ void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
 
 // Met à jour la matrice de connectivité des villes
 void updateCityConnectivity(GameState* state) {
+    extern void invalidatePathCache(void);
+    invalidatePathCache();
     if (!state) {
         printf("Error: Game state is NULL in updateCityConnectivity\n");
         return;

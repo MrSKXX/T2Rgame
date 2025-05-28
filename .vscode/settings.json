@@ -3,6 +3,11 @@
         "gamestate.h": "c",
         "clientapi.h": "c",
         "tickettoride.h": "c",
-        "stdarg.h": "c"
+        "stdarg.h": "c",
+        "rules.h": "c",
+        "strategy.h": "c",
+        "pathfinding.h": "c",
+        "strategy_core.h": "c",
+        "stdlib.h": "c"
     }
 }

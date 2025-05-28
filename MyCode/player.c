@@ -3,7 +3,7 @@
 #include <string.h>
 #include "player.h"
 #include "gamestate.h"
-#include "strategy.h"
+#include "strategy/strategy.h"
 #include "rules.h"
 
 extern void checkObjectivesPaths(GameState* state);

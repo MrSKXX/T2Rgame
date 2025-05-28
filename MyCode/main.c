@@ -7,11 +7,12 @@
 #include "../tickettorideapi/clientAPI.h"
 #include "gamestate.h"
 #include "player.h"
-#include "strategy.h"
+#include "strategy/strategy.h"
 #include "rules.h"
 
 #define MAX_TURNS 200
 #define DEBUG_LEVEL 0
+
 
 void debugPrint(int level, const char* format, ...) {
     if (level <= DEBUG_LEVEL) {
@@ -92,6 +93,11 @@ int main() {
     StrategyType strategy = STRATEGY_ADVANCED;
     
     initPlayer(&gameState, strategy, &gameData);
+if (gameData.starter == 0) {
+    printf("Nous commençons la partie !\n");
+    // Jouer directement le premier tour
+    playFirstTurn(&gameState);
+}
     printBoard();
     printGameState(&gameState);
     

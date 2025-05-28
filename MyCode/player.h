@@ -6,8 +6,8 @@
 #define PLAYER_H
 
 #include "gamestate.h"
-#include "strategy.h"
 #include "../tickettorideapi/ticketToRide.h"
+#include "strategy/strategy.h"
 
 /**
  * Initialise le joueur avec un état de jeu et une stratégie
