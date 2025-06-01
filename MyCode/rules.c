@@ -19,7 +19,7 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
     *nbLocomotives = 0;
     
     if (state->wagonsLeft <= 0) {
-        debugPrint(2, "DEBUG: canClaimRoute - Not enough wagons left");
+        debugLog(2, "DEBUG: canClaimRoute - Not enough wagons left");
         return 0;
     }
     
@@ -432,4 +432,75 @@ int completeObjectivesCount(GameState* state) {
     }
     
     return count;
+}
+
+// AJOUTEZ CETTE FONCTION À LA FIN DE rules.c
+
+/**
+ * Validation simple d'un mouvement avant exécution
+ * Retourne 1 si valide, 0 sinon
+ */
+int isValidMove(GameState* state, MoveData* move) {
+    if (!state || !move) {
+        printf("VALIDATION: Paramètres NULL\n");
+        return 0;
+    }
+    
+    switch (move->action) {
+        case CLAIM_ROUTE: {
+            int from = move->claimRoute.from;
+            int to = move->claimRoute.to;
+            CardColor color = move->claimRoute.color;
+            
+            // Vérifier villes
+            if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
+                printf("VALIDATION ÉCHEC: Villes invalides %d->%d\n", from, to);
+                return 0;
+            }
+            
+            // Vérifier couleur
+            if (color < PURPLE || color > LOCOMOTIVE) {
+                printf("VALIDATION ÉCHEC: Couleur invalide %d\n", color);
+                return 0;
+            }
+            
+            // Vérifier que la route existe et est libre
+            int routeIndex = findRouteIndex(state, from, to);
+            if (routeIndex < 0) {
+                printf("VALIDATION ÉCHEC: Route %d->%d n'existe pas\n", from, to);
+                return 0;
+            }
+            
+            if (state->routes[routeIndex].owner != 0) {
+                printf("VALIDATION ÉCHEC: Route %d->%d déjà prise\n", from, to);
+                return 0;
+            }
+            
+            // Vérifier cartes suffisantes
+            int nbLoco;
+            if (!canClaimRoute(state, from, to, color, &nbLoco)) {
+                printf("VALIDATION ÉCHEC: Pas assez de cartes pour %d->%d\n", from, to);
+                return 0;
+            }
+            
+            return 1;
+        }
+        
+        case DRAW_CARD: {
+            CardColor card = move->drawCard;
+            if (card < PURPLE || card > LOCOMOTIVE) {
+                printf("VALIDATION ÉCHEC: Carte à piocher invalide %d\n", card);
+                return 0;
+            }
+            return 1;
+        }
+        
+        case DRAW_BLIND_CARD:
+        case DRAW_OBJECTIVES:
+            return 1; // Toujours valides
+            
+        default:
+            printf("VALIDATION ÉCHEC: Action inconnue %d\n", move->action);
+            return 0;
+    }
 }

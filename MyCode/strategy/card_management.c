@@ -9,64 +9,81 @@
 #include "../gamestate.h"  
 
 // Pioche stratégique de cartes basée sur les besoins actuels
+// REMPLACEZ la fonction strategicCardDrawing dans card_management.c par cette version
+
 int strategicCardDrawing(GameState* state) {
     if (!state) {
+        printf("ERREUR: État NULL dans strategicCardDrawing\n");
         return -1;
     }
     
-    // Définir les tableaux pour l'analyse
-    int colorNeeds[10] = {0};
-    int totalColorNeeds = 0;
+    printf("=== ANALYSE STRATÉGIQUE DES CARTES ===\n");
     
-    printf("Analyzing card needs for incomplete objectives:\n");
+    // PRIORITÉ 1: Toujours prendre une locomotive visible
+    for (int i = 0; i < 5; i++) {
+        if (state->visibleCards[i] == LOCOMOTIVE) {
+            printf("PRIORITÉ MAX: Locomotive trouvée en position %d\n", i + 1);
+            return i;
+        }
+    }
     
-    // Déterminer les besoins de couleurs pour objectifs non complétés
-    for (int i = 0; i < state->nbObjectives; i++) {
-        if (i < 0 || i >= MAX_OBJECTIVES) continue;
-        
-        if (isObjectiveCompleted(state, state->objectives[i])) {
+    // PRIORITÉ 2: Analyser nos besoins urgents
+    int urgentNeeds[10] = {0};  // Besoins immédiats par couleur
+    int totalNeeds[10] = {0};   // Besoins totaux par couleur
+    
+    // Analyser chaque objectif non complété
+    for (int obj = 0; obj < state->nbObjectives; obj++) {
+        if (isObjectiveCompleted(state, state->objectives[obj])) {
             continue;
         }
         
-        int objFrom = state->objectives[i].from;
-        int objTo = state->objectives[i].to;
+        int objFrom = state->objectives[obj].from;
+        int objTo = state->objectives[obj].to;
         
         if (objFrom < 0 || objFrom >= state->nbCities || objTo < 0 || objTo >= state->nbCities) {
             continue;
         }
         
-        printf("  Objective %d: From %d to %d\n", i+1, objFrom, objTo);
-        
         int path[MAX_CITIES];
         int pathLength = 0;
-        // CHANGEMENT: Utiliser findShortestPath pour analyser les besoins en cartes
-        int distance = findShortestPath(state, objFrom, objTo, path, &pathLength);
         
-        if (distance > 0 && pathLength > 0) {
-            for (int j = 0; j < pathLength - 1 && j < MAX_CITIES - 1; j++) {
-                int pathFrom = path[j];
-                int pathTo = path[j+1];
+        if (findShortestPath(state, objFrom, objTo, path, &pathLength) > 0) {
+            // Analyser chaque segment du chemin
+            for (int i = 0; i < pathLength - 1; i++) {
+                int cityA = path[i];
+                int cityB = path[i + 1];
                 
-                if (pathFrom < 0 || pathFrom >= state->nbCities || 
-                    pathTo < 0 || pathTo >= state->nbCities) {
-                    continue;
-                }
-                
-                for (int k = 0; k < state->nbTracks; k++) {
-                    if (((state->routes[k].from == pathFrom && state->routes[k].to == pathTo) ||
-                         (state->routes[k].from == pathTo && state->routes[k].to == pathFrom)) &&
-                        state->routes[k].owner == 0) {
+                // Trouver la route correspondante
+                for (int r = 0; r < state->nbTracks; r++) {
+                    if (((state->routes[r].from == cityA && state->routes[r].to == cityB) ||
+                         (state->routes[r].from == cityB && state->routes[r].to == cityA)) &&
+                        state->routes[r].owner == 0) { // Route disponible
                         
-                        CardColor routeColor = state->routes[k].color;
-                        int length = state->routes[k].length;
+                        CardColor routeColor = state->routes[r].color;
+                        int routeLength = state->routes[r].length;
                         
-                        if (routeColor != LOCOMOTIVE) {
-                            colorNeeds[routeColor] += length;
-                            totalColorNeeds += length;
+                        if (routeColor == LOCOMOTIVE) {
+                            // Route grise - on peut utiliser n'importe quelle couleur
+                            totalNeeds[LOCOMOTIVE] += 1;
+                            
+                            // Ajouter besoins génériques
+                            for (int c = 1; c < 9; c++) {
+                                totalNeeds[c] += routeLength / 8;
+                            }
                         } else {
-                            colorNeeds[LOCOMOTIVE] += 1;
+                            // Route colorée spécifique
+                            totalNeeds[routeColor] += routeLength;
+                            
+                            // C'est urgent si on peut presque la prendre
+                            int available = state->nbCardsByColor[routeColor] + 
+                                           state->nbCardsByColor[LOCOMOTIVE];
+                            
+                            if (available >= routeLength - 2 && available < routeLength) {
+                                urgentNeeds[routeColor] += (routeLength - available);
+                                printf("BESOIN URGENT: %d cartes %d pour route %d->%d\n",
+                                       routeLength - available, routeColor, cityA, cityB);
+                            }
                         }
-                        
                         break;
                     }
                 }
@@ -74,216 +91,212 @@ int strategicCardDrawing(GameState* state) {
         }
     }
     
-    // Afficher les besoins par couleur
-    printf("Color needs summary:\n");
-    for (int c = 1; c < 10; c++) {
-        if (colorNeeds[c] > 0) {
-            printf("  %s: %d cards needed\n", 
-                  (c < 10) ? (const char*[]){
-                      "None", "Purple", "White", "Blue", "Yellow", 
-                      "Orange", "Black", "Red", "Green", "Locomotive"
-                  }[c] : "Unknown", 
-                  colorNeeds[c]);
-        }
-    }
-    
-    // Trouver la meilleure carte visible selon les besoins
-    int bestCardIndex = -1;
-    int bestCardScore = 0;
+    // PRIORITÉ 3: Chercher les besoins urgents dans les cartes visibles
+    int bestUrgentCard = -1;
+    int maxUrgency = 0;
     
     for (int i = 0; i < 5; i++) {
         CardColor card = state->visibleCards[i];
-        if (card == NONE || card < 0 || card >= 10) {
-            continue;
+        if (card != NONE && card != LOCOMOTIVE && urgentNeeds[card] > maxUrgency) {
+            maxUrgency = urgentNeeds[card];
+            bestUrgentCard = i;
         }
-        
-        int score = 0;
-        
-        // Les locomotives sont toujours très précieuses
-        if (card == LOCOMOTIVE) {
-            score = 100;
-            score += colorNeeds[LOCOMOTIVE] * 10;
-        } 
-        // Score des autres cartes basé sur les besoins
-        else {
-            score = colorNeeds[card] * 5;
+    }
+    
+    if (bestUrgentCard >= 0) {
+        printf("BESOIN URGENT TROUVÉ: Carte %d en position %d (urgence: %d)\n",
+               state->visibleCards[bestUrgentCard], bestUrgentCard + 1, maxUrgency);
+        return bestUrgentCard;
+    }
+    
+    // PRIORITÉ 4: Chercher les couleurs dont nous avons le plus besoin
+    int bestNeededCard = -1;
+    int maxNeed = 0;
+    
+    for (int i = 0; i < 5; i++) {
+        CardColor card = state->visibleCards[i];
+        if (card != NONE && card != LOCOMOTIVE) {
+            int score = totalNeeds[card];
             
-            // Bonus si nous avons déjà des cartes de cette couleur
-            if (state->nbCardsByColor[card] > 0) {
-                score += state->nbCardsByColor[card] * 3;
-                
-                // Bonus si nous sommes proches de compléter une route
-                for (int r = 0; r < state->nbTracks; r++) {
-                    if (state->routes[r].owner == 0) {
-                        CardColor routeColor = state->routes[r].color;
-                        int length = state->routes[r].length;
-                        
-                        if (routeColor == card || routeColor == LOCOMOTIVE) {
-                            int cardsNeeded = length - state->nbCardsByColor[card];
-                            if (cardsNeeded > 0 && cardsNeeded <= 2) {
-                                score += (3 - cardsNeeded) * 15;
-                            }
-                        }
-                    }
-                }
+            // Bonus si on a déjà quelques cartes de cette couleur (synergie)
+            if (state->nbCardsByColor[card] > 0 && state->nbCardsByColor[card] <= 5) {
+                score += state->nbCardsByColor[card] * 2;
             }
             
-            // Pénalité si nous avons trop de cartes de cette couleur (>8)
+            // Pénalité si on a déjà trop de cartes de cette couleur
             if (state->nbCardsByColor[card] > 8) {
-                score -= (state->nbCardsByColor[card] - 8) * 5;
+                score -= 5;
+            }
+            
+            if (score > maxNeed) {
+                maxNeed = score;
+                bestNeededCard = i;
             }
         }
-        
-        printf("Visible card %d: %s, score %d\n", 
-              i+1, 
-              (card < 10) ? (const char*[]){
-                  "None", "Purple", "White", "Blue", "Yellow", 
-                  "Orange", "Black", "Red", "Green", "Locomotive"
-              }[card] : "Unknown", 
-              score);
-        
-        if (score > bestCardScore) {
-            bestCardScore = score;
-            bestCardIndex = i;
-        }
     }
     
-    // Si aucune carte visible n'est bonne, suggérer une pioche aveugle
-    if (bestCardIndex == -1 || bestCardScore < 20) {
-        int blindScore = 40;
-        
-        // Plus de chances de pioche aveugle si besoins diversifiés
-        int uniqueNeeds = 0;
-        for (int c = 1; c < 10; c++) {
-            if (colorNeeds[c] > 0) {
-                uniqueNeeds++;
+    if (bestNeededCard >= 0 && maxNeed > 3) {
+        printf("COULEUR STRATÉGIQUE: Carte %d en position %d (besoin: %d)\n",
+               state->visibleCards[bestNeededCard], bestNeededCard + 1, maxNeed);
+        return bestNeededCard;
+    }
+    
+    // PRIORITÉ 5: Diversification - prendre une couleur qu'on n'a pas
+    if (state->nbCards > 6) {  // Seulement si on a déjà pas mal de cartes
+        for (int i = 0; i < 5; i++) {
+            CardColor card = state->visibleCards[i];
+            if (card != NONE && card != LOCOMOTIVE && 
+                state->nbCardsByColor[card] == 0 && totalNeeds[card] > 0) {
+                printf("DIVERSIFICATION: Nouvelle couleur %d en position %d\n", card, i + 1);
+                return i;
             }
         }
-        
-        if (uniqueNeeds >= 3) {
-            blindScore += 20;
-        }
-        
-        printf("Blind draw score: %d (unique color needs: %d)\n", blindScore, uniqueNeeds);
-        
-        if (blindScore > bestCardScore) {
-            printf("Recommending blind draw (score %d > best visible card score %d)\n", 
-                  blindScore, bestCardScore);
-            return -1;
+    }
+    
+    // PRIORITÉ 6: Prendre n'importe quelle carte utile (pas NONE)
+    for (int i = 0; i < 5; i++) {
+        CardColor card = state->visibleCards[i];
+        if (card != NONE && card != LOCOMOTIVE && totalNeeds[card] > 0) {
+            printf("CARTE GÉNÉRIQUE: Couleur %d en position %d\n", card, i + 1);
+            return i;
         }
     }
     
-    if (bestCardIndex >= 0) {
-        printf("Recommending visible card %d: %s (score %d)\n", 
-              bestCardIndex + 1, 
-              (state->visibleCards[bestCardIndex] < 10) ? (const char*[]){
-                  "None", "Purple", "White", "Blue", "Yellow", 
-                  "Orange", "Black", "Red", "Green", "Locomotive"
-              }[state->visibleCards[bestCardIndex]] : "Unknown", 
-              bestCardScore);
-    } else {
-        printf("No good visible card found, recommending blind draw\n");
-    }
-    
-    return bestCardIndex;
+    // DERNIÈRE OPTION: Pioche aveugle
+    printf("AUCUNE CARTE VISIBLE INTÉRESSANTE -> Pioche aveugle recommandée\n");
+    return -1;
 }
 
 // Détermine la couleur optimale pour prendre une route
+// REMPLACEZ determineOptimalColor dans card_management.c par cette version
+
 CardColor determineOptimalColor(GameState* state, int routeIndex) {
     if (routeIndex < 0 || routeIndex >= state->nbTracks) {
         printf("ERREUR: Index de route invalide dans determineOptimalColor: %d\n", routeIndex);
-        return RED; // Valeur par défaut sécurisée
+        return RED; // Valeur de secours sûre
     }
     
     CardColor routeColor = state->routes[routeIndex].color;
     CardColor secondColor = state->routes[routeIndex].secondColor;
     int length = state->routes[routeIndex].length;
     
-    printf("DÉTERMINATION COULEUR pour route %d->%d: Longueur %d, Couleur %d, SecondColor %d\n", 
+    printf("DÉTERMINATION COULEUR route %d->%d: Longueur %d, Couleur %d, SecondColor %d\n", 
            state->routes[routeIndex].from, state->routes[routeIndex].to, 
            length, routeColor, secondColor);
     
-    // Si c'est une route colorée (non grise)
+    // CAS 1: Route colorée (non grise)
     if (routeColor != LOCOMOTIVE) {
-        // Vérifier si nous avons assez de cartes de la couleur principale
+        printf("  Route colorée détectée\n");
+        
+        // Option 1: Couleur principale pure
         if (state->nbCardsByColor[routeColor] >= length) {
-            printf("  CHOIX: Couleur principale %d (assez de cartes)\n", routeColor);
-            return routeColor; // Assez de cartes de cette couleur
-        }
-        
-        // S'il y a une couleur alternative
-        if (secondColor != NONE && state->nbCardsByColor[secondColor] >= length) {
-            printf("  CHOIX: Couleur secondaire %d (assez de cartes)\n", secondColor);
-            return secondColor;
-        }
-        
-        // Si on peut compléter avec des locomotives
-        if (state->nbCardsByColor[routeColor] + state->nbCardsByColor[LOCOMOTIVE] >= length) {
-            printf("  CHOIX: Couleur principale %d avec locomotives\n", routeColor);
+            printf("  CHOIX: Couleur principale %d (assez de cartes: %d)\n", 
+                   routeColor, state->nbCardsByColor[routeColor]);
             return routeColor;
         }
         
-        if (secondColor != NONE && 
-            state->nbCardsByColor[secondColor] + state->nbCardsByColor[LOCOMOTIVE] >= length) {
-            printf("  CHOIX: Couleur secondaire %d avec locomotives\n", secondColor);
+        // Option 2: Couleur secondaire pure (si existe)
+        if (secondColor != NONE && state->nbCardsByColor[secondColor] >= length) {
+            printf("  CHOIX: Couleur secondaire %d (assez de cartes: %d)\n", 
+                   secondColor, state->nbCardsByColor[secondColor]);
             return secondColor;
         }
         
-        // Dernier recours: utiliser uniquement des locomotives
+        // Option 3: Couleur principale + locomotives
+        if (state->nbCardsByColor[routeColor] + state->nbCardsByColor[LOCOMOTIVE] >= length) {
+            printf("  CHOIX: Couleur principale %d avec locomotives (total: %d)\n", 
+                   routeColor, state->nbCardsByColor[routeColor] + state->nbCardsByColor[LOCOMOTIVE]);
+            return routeColor;
+        }
+        
+        // Option 4: Couleur secondaire + locomotives
+        if (secondColor != NONE && 
+            state->nbCardsByColor[secondColor] + state->nbCardsByColor[LOCOMOTIVE] >= length) {
+            printf("  CHOIX: Couleur secondaire %d avec locomotives (total: %d)\n", 
+                   secondColor, state->nbCardsByColor[secondColor] + state->nbCardsByColor[LOCOMOTIVE]);
+            return secondColor;
+        }
+        
+        // Option 5: Locomotives seules
         if (state->nbCardsByColor[LOCOMOTIVE] >= length) {
-            printf("  CHOIX: Toutes locomotives\n");
+            printf("  CHOIX: Toutes locomotives (%d disponibles)\n", state->nbCardsByColor[LOCOMOTIVE]);
             return LOCOMOTIVE;
         }
         
-        printf("  ERREUR: Pas assez de cartes! Retourne NONE\n");
-        return NONE; // Pas assez de cartes
+        // Échec - pas assez de cartes
+        printf("  ÉCHEC: Pas assez de cartes pour cette route!\n");
+        return NONE;
     }
     
-    // C'est une route grise, trouver la couleur la plus efficace
-    CardColor bestColor = NONE;
-    int bestColorCount = 0;
-    
-    for (int c = PURPLE; c <= GREEN; c++) { // 1-8 = couleurs, exclure LOCOMOTIVE
-        int count = state->nbCardsByColor[c];
-        printf("  Évaluation couleur %d: %d cartes\n", c, count);
+    // CAS 2: Route grise - trouver la meilleure option
+    else {
+        printf("  Route grise détectée\n");
         
-        if (count > bestColorCount) {
-            bestColorCount = count;
-            bestColor = c;
+        CardColor bestColor = NONE;
+        int bestScore = -1;
+        
+        // Évaluer chaque couleur standard (1-8)
+        for (int c = PURPLE; c <= GREEN; c++) {
+            int colorCards = state->nbCardsByColor[c];
+            int totalAvailable = colorCards + state->nbCardsByColor[LOCOMOTIVE];
+            
+            if (totalAvailable >= length) {
+                int score = 0;
+                
+                // Score de base : préférer les cartes colorées
+                if (colorCards >= length) {
+                    score = 1000; // Parfait - que des cartes colorées
+                } else {
+                    score = 500 - (length - colorCards) * 10; // Pénalité pour chaque locomotive utilisée
+                }
+                
+                // Bonus si on a exactement ce qu'il faut (évite le gaspillage)
+                if (colorCards == length) {
+                    score += 100;
+                }
+                
+                // Bonus si on a beaucoup de cartes de cette couleur
+                if (colorCards > length + 2) {
+                    score += 50; // Bien d'utiliser nos stocks
+                }
+                
+                printf("    Couleur %d: %d cartes, score %d\n", c, colorCards, score);
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestColor = c;
+                }
+            }
         }
-    }
-    
-    // Si la meilleure couleur suffit
-    if (bestColor != NONE && bestColorCount >= length) {
-        printf("  CHOIX (gris): Couleur %d (assez de cartes: %d)\n", bestColor, bestColorCount);
-        return bestColor;
-    }
-    
-    // Compléter avec des locomotives
-    if (bestColor != NONE && bestColorCount + state->nbCardsByColor[LOCOMOTIVE] >= length) {
-        printf("  CHOIX (gris): Couleur %d avec locomotives\n", bestColor);
-        return bestColor;
-    }
-    
-    // Si uniquement des locomotives suffisent
-    if (state->nbCardsByColor[LOCOMOTIVE] >= length) {
-        printf("  CHOIX (gris): Toutes locomotives\n");
-        return LOCOMOTIVE;
-    }
-    
-    // Fallback: chercher n'importe quelle couleur dont on a des cartes
-    for (int c = PURPLE; c <= GREEN; c++) {
-        if (state->nbCardsByColor[c] > 0) {
-            printf("  CHOIX FALLBACK: Couleur %d (quelques cartes)\n", c);
-            return c;
+        
+        // Évaluer locomotives seules
+        if (state->nbCardsByColor[LOCOMOTIVE] >= length) {
+            int locoScore = 200; // Score de base
+            
+            // Pénalité pour routes courtes (gaspillage de locomotives)
+            if (length <= 2) {
+                locoScore -= 100;
+            }
+            
+            printf("    Locomotives: %d disponibles, score %d\n", 
+                   state->nbCardsByColor[LOCOMOTIVE], locoScore);
+            
+            if (locoScore > bestScore) {
+                bestScore = locoScore;
+                bestColor = LOCOMOTIVE;
+            }
         }
+        
+        if (bestColor != NONE) {
+            printf("  CHOIX (route grise): Couleur %d avec score %d\n", bestColor, bestScore);
+            return bestColor;
+        }
+        
+        // Échec - aucune option viable
+        printf("  ÉCHEC: Aucune couleur viable pour cette route grise!\n");
+        return NONE;
     }
-    
-    // Dernier recours vraiment désespéré
-    printf("  CHOIX DÉSESPÉRÉ: RED par défaut\n");
-    return RED; // Pour éviter de retourner NONE
 }
-
 // Analyse les besoins en cartes pour les objectifs
 void analyzeCardNeeds(GameState* state, int colorNeeds[10]) {
     // Initialiser le tableau

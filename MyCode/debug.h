@@ -14,7 +14,7 @@
 #define DEBUG_LEVEL 1  // Augmenté de 0 à 1 pour voir les erreurs importantes
 
 // Fonction utilitaire pour afficher les messages de débogage selon le niveau
-void debugPrint(int level, const char* format, ...);
+void debugLog(int level, const char* format, ...);
 
 // Nouvelle fonction pour analyser les objectifs en profondeur
 void debugObjectives(GameState* state);

@@ -335,413 +335,261 @@ void checkObjectivesPaths(GameState* state) {
 }
 
 // Fonction de choix des objectifs optimisée
+// REMPLACEZ improvedObjectiveEvaluation dans objective_analysis.c par cette version
+
 void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* chooseObjectives) {
-    printf("Évaluation avancée des objectifs\n");
+    printf("\n=== ÉVALUATION SIMPLIFIÉE DES OBJECTIFS ===\n");
     
     if (!state || !objectives || !chooseObjectives) {
-        printf("ERROR: Invalid parameters in improvedObjectiveEvaluation\n");
+        printf("ERREUR: Paramètres NULL dans improvedObjectiveEvaluation\n");
         return;
     }
     
-    // Initialiser les choix à false
+    // Initialiser tous les choix à false
     for (int i = 0; i < 3; i++) {
         chooseObjectives[i] = false;
     }
     
-    // DÉTECTION SPÉCIALE premier tour - au moins 2 objectifs requis
-    bool isFirstTurn = (state->nbObjectives == 0 && state->nbClaimedRoutes == 0);
+    // Déterminer si c'est le premier tour
+    bool isFirstTurn = (state->nbObjectives == 0);
+    int phase = determineGamePhase(state);
     
-    if (isFirstTurn) {
-        printf("PREMIER TOUR: Au moins 2 objectifs doivent être sélectionnés\n");
-    }
+    printf("Phase de jeu: %d, Premier tour: %s\n", phase, isFirstTurn ? "OUI" : "NON");
     
-    // Scores pour chaque objectif
-    float scores[3];
+    // Structure simple pour évaluer chaque objectif
+    typedef struct {
+        int index;
+        int score;
+        bool feasible;
+        int difficulty;  // 1=facile, 5=très difficile
+        float efficiency; // points par wagon nécessaire
+    } ObjectiveScore;
     
-    // Analyser chaque objectif
+    ObjectiveScore evalResults[3];
+    
+    // Évaluer chaque objectif
     for (int i = 0; i < 3; i++) {
+        evalResults[i].index = i;
+        evalResults[i].score = objectives[i].score;
+        evalResults[i].feasible = false;
+        evalResults[i].difficulty = 5;
+        evalResults[i].efficiency = 0.0f;
+        
         int from = objectives[i].from;
         int to = objectives[i].to;
-        int value = objectives[i].score;
+        int points = objectives[i].score;
         
+        printf("\nObjectif %d: De %d à %d pour %d points\n", i+1, from, to, points);
+        
+        // Vérifier la validité des villes
         if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-            printf("Objectif %d: Villes invalides - De %d à %d, score %d\n", i+1, from, to, value);
-            scores[i] = -1000;
+            printf("  REJETÉ: Villes invalides\n");
             continue;
         }
         
-        printf("Objectif %d: De %d à %d, score %d\n", i+1, from, to, value);
-        
-        // CHANGEMENT: Utiliser findShortestPath pour l'évaluation
+        // Trouver le chemin le plus court
         int path[MAX_CITIES];
         int pathLength = 0;
         int distance = findShortestPath(state, from, to, path, &pathLength);
         
-        if (distance < 0) {
-            scores[i] = -1000;
-            printf("  - Aucun chemin disponible, objectif impossible\n");
+        if (distance <= 0) {
+            printf("  REJETÉ: Aucun chemin possible\n");
             continue;
         }
         
-        // Pénalité massive pour les chemins trop longs
-        if (distance > 10) {
-            printf("  - ATTENTION: Chemin très long (%d) pour cet objectif\n", distance);
-            scores[i] = -1000;
-            continue;
-        }
+        printf("  Chemin trouvé: %d segments, distance totale %d\n", pathLength - 1, distance);
         
-        // Analyser la complexité du chemin
+        // Analyser la faisabilité
         int routesNeeded = 0;
-        int routesOwnedByUs = 0;
-        int routesOwnedByOpponent = 0;
-        int routesAvailable = 0;
-        int totalLength = 0;
-        int routesBlockedByOpponent = 0;
+        int routesBlocked = 0;
+        int totalWagons = 0;
+        bool hasBlockedRoutes = false;
         
-        for (int j = 0; j < pathLength - 1 && j < MAX_CITIES - 1; j++) {
-            int pathFrom = path[j];
-            int pathTo = path[j+1];
+        for (int j = 0; j < pathLength - 1; j++) {
+            int cityA = path[j];
+            int cityB = path[j + 1];
             
-            if (pathFrom < 0 || pathFrom >= state->nbCities || 
-                pathTo < 0 || pathTo >= state->nbCities) {
-                printf("  - ATTENTION: Villes invalides dans le chemin\n");
-                continue;
-            }
-            
-            // Trouver la route entre ces villes
             bool routeFound = false;
-            bool alternativeRouteExists = false;
-            
             for (int k = 0; k < state->nbTracks; k++) {
-                if ((state->routes[k].from == pathFrom && state->routes[k].to == pathTo) ||
-                    (state->routes[k].from == pathTo && state->routes[k].to == pathFrom)) {
+                if ((state->routes[k].from == cityA && state->routes[k].to == cityB) ||
+                    (state->routes[k].from == cityB && state->routes[k].to == cityA)) {
                     
                     routeFound = true;
-                    totalLength += state->routes[k].length;
+                    totalWagons += state->routes[k].length;
                     
                     if (state->routes[k].owner == 0) {
-                        routesAvailable++;
-                    } else if (state->routes[k].owner == 1) {
-                        routesOwnedByUs++;
+                        routesNeeded++;
                     } else if (state->routes[k].owner == 2) {
-                        routesOwnedByOpponent++;
-                        routesBlockedByOpponent++;
+                        routesBlocked++;
+                        hasBlockedRoutes = true;
                     }
+                    // Si owner == 1, c'est déjà notre route
+                    break;
                 }
-                
-                // Vérifier s'il existe des routes alternatives
-                else if (((state->routes[k].from == pathFrom && state->routes[k].to == pathTo) ||
-                         (state->routes[k].from == pathTo && state->routes[k].to == pathFrom)) &&
-                         state->routes[k].owner == 0) {
-                    alternativeRouteExists = true;
-                }
-            }
-            
-            // Si une route est bloquée mais qu'une alternative existe, ne pas compter comme bloquée
-            if (routesBlockedByOpponent > 0 && alternativeRouteExists) {
-                routesBlockedByOpponent--;
             }
             
             if (!routeFound) {
-                scores[i] = -1000;
-                printf("  - Erreur: Le chemin contient une route inexistante\n");
+                printf("  ERREUR: Route manquante entre %d et %d\n", cityA, cityB);
+                hasBlockedRoutes = true;
             }
         }
         
-        routesNeeded = routesAvailable + routesOwnedByUs;
-        
-        // Si des routes sont bloquées par l'adversaire, pénalité massive
-        if (routesBlockedByOpponent > 0) {
-            int penalty = routesBlockedByOpponent * 50;
-            scores[i] = -penalty;
-            printf("  - %d routes bloquées par l'adversaire, pénalité: -%d\n", 
-                   routesBlockedByOpponent, penalty);
+        // Rejeter si des routes sont bloquées
+        if (hasBlockedRoutes) {
+            printf("  REJETÉ: %d routes bloquées par l'adversaire\n", routesBlocked);
             continue;
         }
         
-        // Score de base: rapport points/longueur
-        float pointsPerLength = (totalLength > 0) ? (float)value / totalLength : 0;
-        float baseScore = pointsPerLength * 150.0;
-        
-        // Progrès de complétion
-        float completionProgress = 0;
-        if (routesNeeded > 0) {
-            completionProgress = (float)routesOwnedByUs / routesNeeded;
+        // Rejeter si trop long
+        if (distance > 12) {
+            printf("  REJETÉ: Chemin trop long (%d > 12)\n", distance);
+            continue;
         }
         
-        float completionBonus = completionProgress * 250.0;
-        
-        // Correspondance des cartes
-        float cardMatchScore = 0;
-        int colorMatchCount = 0;
-        
-        for (int j = 0; j < pathLength - 1 && j < MAX_CITIES - 1; j++) {
-            int pathFrom = path[j];
-            int pathTo = path[j+1];
-            
-            if (pathFrom < 0 || pathFrom >= state->nbCities || 
-                pathTo < 0 || pathTo >= state->nbCities) {
-                continue;
-            }
-            
-            for (int k = 0; k < state->nbTracks; k++) {
-                if (((state->routes[k].from == pathFrom && state->routes[k].to == pathTo) ||
-                     (state->routes[k].from == pathTo && state->routes[k].to == pathFrom)) &&
-                    state->routes[k].owner == 0) {
-                    
-                    CardColor routeColor = state->routes[k].color;
-                    int length = state->routes[k].length;
-                    
-                    if (routeColor != LOCOMOTIVE) {
-                        if (state->nbCardsByColor[routeColor] >= length/2) {
-                            colorMatchCount++;
-                        }
-                    } else {
-                        // Route grise - vérifier si nous avons assez de cartes de n'importe quelle couleur
-                        for (int c = 1; c < 9; c++) {
-                            if (state->nbCardsByColor[c] >= length/2) {
-                                colorMatchCount++;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
+        // Rejeter si pas assez de wagons
+        if (totalWagons > state->wagonsLeft + 5) { // Marge de 5 wagons
+            printf("  REJETÉ: Trop de wagons nécessaires (%d, nous avons %d)\n", 
+                   totalWagons, state->wagonsLeft);
+            continue;
         }
         
-        if (routesAvailable > 0) {
-            cardMatchScore = (float)colorMatchCount / routesAvailable * 120.0;
+        // Objectif faisable !
+        evalResults[i].feasible = true;
+        
+        // Calculer la difficulté (1=facile, 5=difficile)
+        evalResults[i].difficulty = 1;
+        
+        if (routesNeeded > 3) evalResults[i].difficulty++;
+        if (distance > 8) evalResults[i].difficulty++;
+        if (totalWagons > 15) evalResults[i].difficulty++;
+        if (points < 8) evalResults[i].difficulty++; // Objectifs de faible valeur = moins prioritaires
+        
+        // Calculer l'efficacité (points par wagon)
+        if (totalWagons > 0) {
+            evalResults[i].efficiency = (float)points / totalWagons;
         }
         
-        // Synergie avec les objectifs existants
-        float synergyScore = 0;
-        
-        // Vérifier la synergie avec les objectifs existants
-        for (int j = 0; j < state->nbObjectives; j++) {
-            int objFrom = state->objectives[j].from;
-            int objTo = state->objectives[j].to;
-            
-            // Points communs avec les objectifs existants
-            if (from == objFrom || from == objTo || to == objFrom || to == objTo) {
-                synergyScore += 60;
-            }
-            
-            // Vérifier les routes communes avec les objectifs existants
-            int objPath[MAX_CITIES];
-            int objPathLength = 0;
-            
-            if (findShortestPath(state, objFrom, objTo, objPath, &objPathLength) >= 0) {
-                int sharedRoutes = 0;
-                
-                for (int p1 = 0; p1 < pathLength - 1 && p1 < MAX_CITIES - 1; p1++) {
-                    for (int p2 = 0; p2 < objPathLength - 1 && p2 < MAX_CITIES - 1; p2++) {
-                        if ((path[p1] == objPath[p2] && path[p1+1] == objPath[p2+1]) ||
-                            (path[p1] == objPath[p2+1] && path[p1+1] == objPath[p2])) {
-                            sharedRoutes++;
-                        }
-                    }
-                }
-                
-                synergyScore += sharedRoutes * 30;
-            }
-        }
-        
-        // Pénalité pour la compétition avec l'adversaire
-        float competitionPenalty = 0;
-        extern int opponentCitiesOfInterest[MAX_CITIES];
-        
-        for (int j = 0; j < pathLength - 1 && j < MAX_CITIES - 1; j++) {
-            int pathFrom = path[j];
-            int pathTo = path[j+1];
-            
-            if (pathFrom < MAX_CITIES && pathTo < MAX_CITIES && 
-                (opponentCitiesOfInterest[pathFrom] > 0 || opponentCitiesOfInterest[pathTo] > 0)) {
-                
-                int fromPenalty = (pathFrom < MAX_CITIES) ? opponentCitiesOfInterest[pathFrom] : 0;
-                int toPenalty = (pathTo < MAX_CITIES) ? opponentCitiesOfInterest[pathTo] : 0;
-                competitionPenalty += (fromPenalty + toPenalty) * 5;
-            }
-        }
-        
-        // Pénalité pour la difficulté
-        float difficultyPenalty = 0;
-        if (routesNeeded > 4) {
-            difficultyPenalty = (routesNeeded - 3) * 40;
-        }
-        
-        // Pénalité pour les chemins longs
-        float lengthPenalty = 0;
-        if (distance > 6) {
-            lengthPenalty = (distance - 6) * 30;
-        }
-        
-        // Bonus pour les objectifs à haute valeur
-        float valueBonus = 0;
-        if (value > 10) {
-            valueBonus = (value - 10) * 10;
-        }
-        
-        // Calcul du score final
-        scores[i] = baseScore + completionBonus + cardMatchScore + synergyScore + valueBonus
-                  - competitionPenalty - difficultyPenalty - lengthPenalty;
-        
-        // Log des composants pour le débogage
-        printf("  - Score de base (points/longueur): %.1f\n", baseScore);
-        printf("  - Bonus de complétion: %.1f\n", completionBonus);
-        printf("  - Correspondance des cartes: %.1f\n", cardMatchScore);
-        printf("  - Synergie: %.1f\n", synergyScore);
-        printf("  - Bonus de valeur: %.1f\n", valueBonus);
-        printf("  - Compétition: -%.1f\n", competitionPenalty);
-        printf("  - Difficulté: -%.1f\n", difficultyPenalty);
-        printf("  - Pénalité de longueur: -%.1f\n", lengthPenalty);
-        printf("  - SCORE FINAL: %.1f\n", scores[i]);
+        printf("  FAISABLE: Difficulté %d/5, Efficacité %.2f pts/wagon\n", 
+               evalResults[i].difficulty, evalResults[i].efficiency);
     }
     
-    // Trier les objectifs par score
-    int sortedIndices[3] = {0, 1, 2};
+    // Trier par qualité (efficacité d'abord, puis difficulté)
     for (int i = 0; i < 2; i++) {
         for (int j = 0; j < 2 - i; j++) {
-            if (scores[sortedIndices[j]] < scores[sortedIndices[j+1]]) {
-                int temp = sortedIndices[j];
-                sortedIndices[j] = sortedIndices[j+1];
-                sortedIndices[j+1] = temp;
+            bool swap = false;
+            
+            // D'abord, préférer les objectifs faisables
+            if (evalResults[j].feasible && !evalResults[j+1].feasible) {
+                swap = false;
+            } else if (!evalResults[j].feasible && evalResults[j+1].feasible) {
+                swap = true;
+            }
+            // Si même faisabilité, comparer l'efficacité
+            else if (evalResults[j].feasible == evalResults[j+1].feasible) {
+                if (evalResults[j].efficiency < evalResults[j+1].efficiency) {
+                    swap = true;
+                } else if (evalResults[j].efficiency == evalResults[j+1].efficiency &&
+                          evalResults[j].difficulty > evalResults[j+1].difficulty) {
+                    swap = true;
+                }
+            }
+            
+            if (swap) {
+                ObjectiveScore temp = evalResults[j];
+                evalResults[j] = evalResults[j+1];
+                evalResults[j+1] = temp;
             }
         }
     }
     
-    // STRATÉGIE DE SÉLECTION
-    int numToChoose = 0;
+    // Stratégie de sélection selon la phase
+    printf("\nSTRATÉGIE DE SÉLECTION:\n");
     
-    // Règle spéciale pour le premier tour
     if (isFirstTurn) {
-        // Exigence du serveur: au moins 2 objectifs au premier tour
-        chooseObjectives[sortedIndices[0]] = true;
-        chooseObjectives[sortedIndices[1]] = true;
-        numToChoose = 2;
+        // Premier tour : OBLIGATOIREMENT au moins 2 objectifs
+        printf("PREMIER TOUR: Minimum 2 objectifs requis\n");
         
-        // Prendre le troisième objectif seulement s'il a un bon score
-        if (scores[sortedIndices[2]] > 50) {
-            chooseObjectives[sortedIndices[2]] = true;
-            numToChoose = 3;
+        // Prendre les 2 meilleurs s'ils sont faisables
+        if (evalResults[0].feasible) {
+            chooseObjectives[evalResults[0].index] = true;
+            printf("  Sélectionné: Objectif %d (meilleur)\n", evalResults[0].index + 1);
+        }
+        
+        if (evalResults[1].feasible) {
+            chooseObjectives[evalResults[1].index] = true;
+            printf("  Sélectionné: Objectif %d (deuxième)\n", evalResults[1].index + 1);
+        }
+        
+        // Si moins de 2 sélectionnés, forcer le choix
+        int selected = 0;
+        for (int i = 0; i < 3; i++) {
+            if (chooseObjectives[i]) selected++;
+        }
+        
+        if (selected < 2) {
+            printf("  CORRECTION: Moins de 2 objectifs, sélection forcée\n");
+            chooseObjectives[evalResults[0].index] = true;
+            chooseObjectives[evalResults[1].index] = true;
+        }
+        
+        // Troisième objectif seulement s'il est excellent
+        if (evalResults[2].feasible && evalResults[2].efficiency > 0.6f && evalResults[2].difficulty <= 2) {
+            chooseObjectives[evalResults[2].index] = true;
+            printf("  Bonus: Objectif %d (excellent)\n", evalResults[2].index + 1);
         }
     }
     else {
-        // Stratégie pour les tours suivants
-        int phase = determineGamePhase(state);
-        int currentObjectiveCount = state->nbObjectives;
+        // Tours suivants : plus sélectif
+        printf("TOUR NORMAL: Sélection selon phase %d\n", phase);
         
-        // Toujours prendre le meilleur objectif s'il n'est pas catastrophique
-        if (scores[sortedIndices[0]] > -500) {
-            chooseObjectives[sortedIndices[0]] = true;
-            numToChoose++;
-        }
+        int maxObjectifs = 1;
+        float seuilEfficacite = 0.4f;
         
-        // La sélection des objectifs supplémentaires dépend de la phase
         if (phase == PHASE_EARLY) {
-            // Plus agressif sur la prise d'objectifs en début de partie
-            if (currentObjectiveCount < 2) {
-                if (scores[sortedIndices[1]] > 100) {
-                    chooseObjectives[sortedIndices[1]] = true;
-                    numToChoose++;
-                }
+            maxObjectifs = 2;
+            seuilEfficacite = 0.3f;
+        } else if (phase == PHASE_MIDDLE) {
+            maxObjectifs = 1;
+            seuilEfficacite = 0.5f;
+        } else {
+            maxObjectifs = 1;
+            seuilEfficacite = 0.7f;
+        }
+        
+        int selected = 0;
+        for (int i = 0; i < 3 && selected < maxObjectifs; i++) {
+            if (evalResults[i].feasible && 
+                evalResults[i].efficiency >= seuilEfficacite && 
+                evalResults[i].difficulty <= 3) {
                 
-                if (scores[sortedIndices[2]] > 150) {
-                    chooseObjectives[sortedIndices[2]] = true;
-                    numToChoose++;
-                }
-            } else if (currentObjectiveCount < 3) {
-                if (scores[sortedIndices[1]] > 120) {
-                    chooseObjectives[sortedIndices[1]] = true;
-                    numToChoose++;
-                }
-            }
-            else if (scores[sortedIndices[1]] > 200) {
-                chooseObjectives[sortedIndices[1]] = true;
-                numToChoose++;
-            }
-        }
-        else if (phase == PHASE_MIDDLE) {
-            // Plus sélectif en milieu de partie
-            if (currentObjectiveCount < 3) {
-                if (scores[sortedIndices[1]] > 150) {
-                    chooseObjectives[sortedIndices[1]] = true;
-                    numToChoose++;
-                }
-            }
-            else if (scores[sortedIndices[1]] > 250) {
-                chooseObjectives[sortedIndices[1]] = true;
-                numToChoose++;
-            }
-        }
-        else {
-            // Très sélectif en fin de partie
-            if (scores[sortedIndices[1]] > 300) {
-                chooseObjectives[sortedIndices[1]] = true;
-                numToChoose++;
+                chooseObjectives[evalResults[i].index] = true;
+                selected++;
+                printf("  Sélectionné: Objectif %d (efficacité %.2f)\n", 
+                       evalResults[i].index + 1, evalResults[i].efficiency);
             }
         }
         
-        // LIMITATION DU NOMBRE TOTAL D'OBJECTIFS
-        int maxTotalObjectives = 3 + (phase == PHASE_EARLY ? 1 : 0);
-        if (currentObjectiveCount + numToChoose > maxTotalObjectives) {
-            // Réduire pour respecter la limite
-            int maxNewObjectives = maxTotalObjectives - currentObjectiveCount;
-            if (maxNewObjectives <= 0) {
-                // Ne garder que le meilleur
-                for (int i = 1; i < 3; i++) {
-                    chooseObjectives[sortedIndices[i]] = false;
-                }
-                numToChoose = 1;
-            } else {
-                // Garder les N meilleurs
-                for (int i = maxNewObjectives; i < 3; i++) {
-                    chooseObjectives[sortedIndices[i]] = false;
-                }
-                numToChoose = maxNewObjectives;
-            }
+        // Garantir au moins 1 objectif
+        if (selected == 0 && evalResults[0].feasible) {
+            chooseObjectives[evalResults[0].index] = true;
+            printf("  Sélection forcée: Objectif %d (meilleur disponible)\n", 
+                   evalResults[0].index + 1);
         }
     }
     
-    // VÉRIFICATION: Au moins un objectif doit être sélectionné
-    bool anySelected = false;
+    // Résumé final
+    int finalCount = 0;
+    printf("\nRÉSULTAT FINAL:\n");
     for (int i = 0; i < 3; i++) {
         if (chooseObjectives[i]) {
-            anySelected = true;
-            break;
+            finalCount++;
+            printf("  ✓ Objectif %d: %d->%d (%d points)\n", 
+                   i+1, objectives[i].from, objectives[i].to, objectives[i].score);
         }
     }
+    printf("Total: %d objectifs sélectionnés\n", finalCount);
     
-    if (!anySelected) {
-        // Forcer la sélection du premier objectif
-        chooseObjectives[0] = true;
-        numToChoose = 1;
-        printf("CORRECTION D'URGENCE: Aucun objectif sélectionné! Sélection forcée de l'objectif 1\n");
-    }
-    
-    // VÉRIFICATION FINALE POUR LE PREMIER TOUR: au moins 2 objectifs requis
-    if (isFirstTurn) {
-        int selectedCount = 0;
-        for (int i = 0; i < 3; i++) {
-            if (chooseObjectives[i]) {
-                selectedCount++;
-            }
-        }
-        
-        if (selectedCount < 2) {
-            printf("CORRECTION PREMIER TOUR: Moins de 2 objectifs sélectionnés, forcé à 2\n");
-            chooseObjectives[sortedIndices[0]] = true;
-            chooseObjectives[sortedIndices[1]] = true;
-            numToChoose = 2;
-        }
-    }
-    
-    printf("Choix de %d objectifs: ", numToChoose);
-    for (int i = 0; i < 3; i++) {
-        if (chooseObjectives[i]) {
-            printf("%d ", i+1);
-        }
-    }
-    printf("\n");
+    printf("============================================\n\n");
 }
 
 // Interface publique pour les stratégies

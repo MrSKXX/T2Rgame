@@ -11,7 +11,53 @@
 #include "../gamestate.h"  
 
 
-// Fonction principale de décision
+/**
+ * Wrapper sécurisé pour la stratégie - valide tous les mouvements
+ */
+int safeAdvancedStrategy(GameState* state, MoveData* moveData) {
+    if (!state || !moveData) {
+        printf("ERREUR CRITIQUE: Paramètres NULL dans safeAdvancedStrategy\n");
+        return 0;
+    }
+    
+    // Exécuter la stratégie normale
+    int result = superAdvancedStrategy(state, moveData);
+    
+    if (result != 1) {
+        printf("ERREUR: Stratégie principale a échoué (code %d)\n", result);
+        // Action de secours
+        moveData->action = DRAW_BLIND_CARD;
+        return 1;
+    }
+    
+    // Valider le mouvement choisi
+    if (!isValidMove(state, moveData)) {
+        printf("CORRECTION AUTOMATIQUE: Mouvement invalide détecté, pioche forcée\n");
+        moveData->action = DRAW_BLIND_CARD;
+    }
+    
+    // Log du mouvement pour debug
+    switch (moveData->action) {
+        case CLAIM_ROUTE:
+            printf("MOUVEMENT VALIDÉ: Prendre route %d->%d (couleur %d)\n",
+                   moveData->claimRoute.from, moveData->claimRoute.to, 
+                   moveData->claimRoute.color);
+            break;
+        case DRAW_CARD:
+            printf("MOUVEMENT VALIDÉ: Piocher carte visible %d\n", moveData->drawCard);
+            break;
+        case DRAW_BLIND_CARD:
+            printf("MOUVEMENT VALIDÉ: Piocher carte aveugle\n");
+            break;
+        default:
+            printf("MOUVEMENT VALIDÉ: Action %d\n", moveData->action);
+            break;
+    }
+    
+    return 1;
+}
+
+
 int decideNextMove(GameState* state, StrategyType strategy, MoveData* moveData) {
     // La fonction debugObjectives est externe (dans debug.c)
     extern void debugObjectives(GameState* state);
@@ -33,7 +79,7 @@ int decideNextMove(GameState* state, StrategyType strategy, MoveData* moveData) 
     // Ignorer le paramètre strategy, utiliser toujours la stratégie avancée
     (void)strategy; // Éviter l'avertissement de paramètre non utilisé
     
-    return superAdvancedStrategy(state, moveData);
+    return safeAdvancedStrategy(state, moveData);
 }
 
 // Stratégie principale optimisée

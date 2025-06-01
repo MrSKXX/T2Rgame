@@ -38,16 +38,41 @@ int determineGamePhase(GameState* state) {
 }
 
 // Détermination des priorités stratégiques
+// REMPLACEZ determinePriority dans game_analysis.c par cette version
+
 StrategicPriority determinePriority(GameState* state, int phase, CriticalRoute* criticalRoutes, 
                                    int criticalRouteCount, int consecutiveDraws) {
     
-    // 1. Cas spécial: Premier tour - piocher des objectifs
+    printf("\n=== DÉTERMINATION DE PRIORITÉ STRATÉGIQUE ===\n");
+    printf("Phase: %d, Routes critiques: %d, Pioches consécutives: %d\n", 
+           phase, criticalRouteCount, consecutiveDraws);
+    
+    // CAS SPÉCIAL 1: Premier tour - objectifs obligatoires
     if (state->nbObjectives == 0) {
-        printf("Priorité: PIOCHER DES OBJECTIFS (premier tour)\n");
+        printf("PRIORITÉ: DRAW_CARDS (premier tour - objectifs nécessaires)\n");
         return DRAW_CARDS;
     }
     
-    // 2. Analyse des objectifs
+    // CAS SPÉCIAL 2: Fin de partie imminente
+    if (state->lastTurn || state->wagonsLeft <= 3 || state->opponentWagonsLeft <= 2) {
+        printf("URGENCE FIN DE PARTIE détectée!\n");
+        
+        // Vérifier si on peut compléter un objectif rapidement
+        for (int i = 0; i < state->nbObjectives; i++) {
+            if (!isObjectiveCompleted(state, state->objectives[i])) {
+                int routesRestantes = countRemainingRoutesForObjective(state, i);
+                if (routesRestantes == 1) {
+                    printf("PRIORITÉ: COMPLETE_OBJECTIVES (objectif %d complétable!)\n", i+1);
+                    return COMPLETE_OBJECTIVES;
+                }
+            }
+        }
+        
+        printf("PRIORITÉ: BUILD_NETWORK (maximiser points immédiats)\n");
+        return BUILD_NETWORK;
+    }
+    
+    // ANALYSE: Compter objectifs complétés vs incomplets
     int completedObjectives = 0;
     int incompleteObjectives = 0;
     int totalObjectiveValue = 0;
@@ -56,123 +81,112 @@ StrategicPriority determinePriority(GameState* state, int phase, CriticalRoute* 
     for (int i = 0; i < state->nbObjectives; i++) {
         if (isObjectiveCompleted(state, state->objectives[i])) {
             completedObjectives++;
-            totalObjectiveValue += state->objectives[i].score;
         } else {
             incompleteObjectives++;
-            totalObjectiveValue += state->objectives[i].score;
             incompleteObjectiveValue += state->objectives[i].score;
         }
+        totalObjectiveValue += state->objectives[i].score;
     }
     
-    printf("Objectifs: %d complétés, %d incomplets, valeur restante: %d\n",
+    printf("Objectifs: %d complétés, %d incomplets (valeur: %d points)\n",
            completedObjectives, incompleteObjectives, incompleteObjectiveValue);
     
-    // 3. Statistiques sur cartes disponibles
+    // ANALYSE: Compter nos cartes totales
     int totalCards = 0;
-    int maxSameColorCards = 0;
-    int colorWithMostCards = 0;
+    int maxColorCards = 0;
     for (int i = 1; i < 10; i++) {
         totalCards += state->nbCardsByColor[i];
-        if (state->nbCardsByColor[i] > maxSameColorCards) {
-            maxSameColorCards = state->nbCardsByColor[i];
-            colorWithMostCards = i;
+        if (state->nbCardsByColor[i] > maxColorCards) {
+            maxColorCards = state->nbCardsByColor[i];
         }
     }
     
-    // 4. Déterminer la priorité selon les conditions
+    printf("Cartes: %d total, max d'une couleur: %d\n", totalCards, maxColorCards);
     
-    // 4.1 Stratégie d'accumulation en début de partie
-    if (phase == PHASE_EARLY && state->turnCount < 6 && totalCards < 8) {
-        printf("Priorité: ACCUMULER DES CARTES (phase initiale, seulement %d cartes)\n", totalCards);
-        return DRAW_CARDS;
+    // ANALYSE: Routes critiques disponibles
+    int criticalRoutesReady = 0;
+    for (int i = 0; i < criticalRouteCount; i++) {
+        if (criticalRoutes[i].hasEnoughCards) {
+            criticalRoutesReady++;
+        }
     }
     
-    // 4.2 Fin de partie avec objectifs incomplets - priorité absolue
-    if ((phase == PHASE_LATE || phase == PHASE_FINAL) && incompleteObjectives > 0) {
-        printf("URGENCE FIN DE PARTIE: Prioriser complétion des %d objectifs incomplets!\n", 
-               incompleteObjectives);
+    printf("Routes critiques prêtes: %d/%d\n", criticalRoutesReady, criticalRouteCount);
+    
+    // LOGIQUE DE DÉCISION SIMPLIFIÉE
+    
+    // RÈGLE 1: Routes critiques prêtes = priorité absolue
+    if (criticalRoutesReady > 0) {
+        printf("PRIORITÉ: COMPLETE_OBJECTIVES (routes critiques prêtes!)\n");
         return COMPLETE_OBJECTIVES;
     }
     
-    // 4.3 Dernier tour - maximiser points
-    if (state->lastTurn) {
-        printf("DERNIER TOUR: Utiliser nos ressources restantes!\n");
+    // RÈGLE 2: Début de partie avec peu de cartes = accumuler
+    if (phase == PHASE_EARLY && totalCards < 8) {
+        printf("PRIORITÉ: DRAW_CARDS (début de partie, accumuler cartes)\n");
+        return DRAW_CARDS;
+    }
+    
+    // RÈGLE 3: Beaucoup de cartes = construire
+    if (totalCards >= 12 || maxColorCards >= 6) {
+        printf("PRIORITÉ: BUILD_NETWORK (beaucoup de cartes disponibles)\n");
         return BUILD_NETWORK;
     }
     
-    // 4.4 Analyse des objectifs critiques
-    if ((phase == PHASE_LATE || phase == PHASE_FINAL) && incompleteObjectives > 0) {
-        for (int i = 0; i < state->nbObjectives; i++) {
-            if (!isObjectiveCompleted(state, state->objectives[i])) {
-                extern int countRemainingRoutesForObjective(GameState* state, int objectiveIndex);
-                int remainingRoutes = countRemainingRoutesForObjective(state, i);
-                
-                if (remainingRoutes >= 0 && remainingRoutes <= 2) {
-                    printf("URGENCE: Objectif %d proche de la complétion! (reste %d routes)\n", 
-                           i+1, remainingRoutes);
-                    return COMPLETE_OBJECTIVES;
-                }
-            }
-        }
-    }
-    
-    // 4.5 Objectifs à haute valeur
-    if (incompleteObjectiveValue > 15 && phase >= PHASE_MIDDLE) {
-        printf("PRIORITÉ CRITIQUE: Objectifs incomplets de grande valeur (%d points)\n", 
+    // RÈGLE 4: Objectifs incomplets à haute valeur
+    if (incompleteObjectiveValue >= 15 && phase >= PHASE_MIDDLE) {
+        printf("PRIORITÉ: COMPLETE_OBJECTIVES (objectifs de haute valeur: %d points)\n", 
                incompleteObjectiveValue);
         return COMPLETE_OBJECTIVES;
     }
     
-    // 4.6 Tous objectifs complétés
+    // RÈGLE 5: Tous objectifs complétés
     if (incompleteObjectives == 0) {
         if (state->nbObjectives < 3 && phase < PHASE_LATE) {
-            printf("Priorité: PIOCHER DES OBJECTIFS (tous complétés)\n");
+            printf("PRIORITÉ: DRAW_CARDS (chercher plus d'objectifs)\n");
             return DRAW_CARDS;
         } else {
-            printf("Tous objectifs complétés: Prioriser les routes longues\n");
+            printf("PRIORITÉ: BUILD_NETWORK (tous objectifs complétés)\n");
             return BUILD_NETWORK;
         }
     }
     
-    // 4.7 Analyse plus fine pour autres cas
-    float completionRate = (float)completedObjectives / state->nbObjectives;
+    // RÈGLE 6: Trop de pioches consécutives = forcer action
+    if (consecutiveDraws >= 4) {
+        printf("PRIORITÉ: BUILD_NETWORK (trop de pioches consécutives: %d)\n", consecutiveDraws);
+        return BUILD_NETWORK;
+    }
     
-    if (completionRate > 0.7 && state->nbObjectives <= 3 && phase != PHASE_FINAL) {
-        printf("Priorité: PIOCHER DES OBJECTIFS (bon taux de complétion: %.2f)\n", completionRate);
-        return DRAW_CARDS;
-    }
-    else if (completionRate < 0.3 && state->wagonsLeft < 30) {
-        printf("Priorité: COMPLÉTER OBJECTIFS (faible taux de complétion: %.2f)\n", completionRate);
-        return COMPLETE_OBJECTIVES;
-    }
-    else {
-        // Comparer scores estimés
-        int ourEstimatedScore = calculateScore(state);
-        int estimatedOpponentScore = estimateOpponentScore(state);
-        
-        printf("Score estimé: Nous = %d, Adversaire = %d\n", ourEstimatedScore, estimatedOpponentScore);
-        
-        if (ourEstimatedScore < estimatedOpponentScore && phase != PHASE_EARLY) {
-            printf("Priorité: CONSTRUIRE RÉSEAU (nous sommes en retard)\n");
-            return BUILD_NETWORK;
-        }
-        else if (incompleteObjectiveValue > 20) {
-            printf("Priorité: COMPLÉTER OBJECTIFS (valeur élevée: %d)\n", incompleteObjectiveValue);
-            return COMPLETE_OBJECTIVES;
-        }
-        else {
-            // Équilibrer entre objectifs et routes
-            if (maxSameColorCards >= 4) {
-                printf("Priorité: CONSTRUIRE RÉSEAU (beaucoup de cartes: %d)\n", maxSameColorCards);
-                return BUILD_NETWORK;
-            } else if (state->turnCount % 3 == 0) {
-                printf("Priorité: CONSTRUIRE RÉSEAU (alternance)\n");
-                return BUILD_NETWORK;
-            } else {
-                printf("Priorité: COMPLÉTER OBJECTIFS (alternance)\n");
-                return COMPLETE_OBJECTIVES;
+    // RÈGLE 7: Milieu/fin de partie avec objectifs incomplets
+    if (phase >= PHASE_MIDDLE && incompleteObjectives > 0) {
+        // Vérifier si des objectifs sont "presque" complétables
+        int nearlyCompleteObjectives = 0;
+        for (int i = 0; i < state->nbObjectives; i++) {
+            if (!isObjectiveCompleted(state, state->objectives[i])) {
+                int routesNeeded = countRemainingRoutesForObjective(state, i);
+                if (routesNeeded >= 0 && routesNeeded <= 2) {
+                    nearlyCompleteObjectives++;
+                }
             }
         }
+        
+        if (nearlyCompleteObjectives > 0) {
+            printf("PRIORITÉ: COMPLETE_OBJECTIVES (%d objectifs presque complétés)\n", 
+                   nearlyCompleteObjectives);
+            return COMPLETE_OBJECTIVES;
+        }
+    }
+    
+    // RÈGLE 8: Défaut selon la phase
+    if (phase == PHASE_EARLY) {
+        printf("PRIORITÉ: DRAW_CARDS (défaut début de partie)\n");
+        return DRAW_CARDS;
+    } else if (totalCards >= 8) {
+        printf("PRIORITÉ: BUILD_NETWORK (défaut avec cartes suffisantes)\n");
+        return BUILD_NETWORK;
+    } else {
+        printf("PRIORITÉ: DRAW_CARDS (défaut - besoin de cartes)\n");
+        return DRAW_CARDS;
     }
 }
 

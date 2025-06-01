@@ -92,4 +92,6 @@ int findRouteIndex(GameState* state, int from, int to);
  */
 int completeObjectivesCount(GameState* state);
 
+int isValidMove(GameState* state, MoveData* move);
+
 #endif // RULES_H
