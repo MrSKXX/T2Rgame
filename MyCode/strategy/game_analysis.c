@@ -1,6 +1,6 @@
 /**
  * game_analysis.c
- * Analyse de l'état du jeu et détermination des priorités stratégiques - VERSION CORRIGÉE
+ * Analyse de l'état du jeu et détermination des priorités stratégiques - VERSION NETTOYÉE
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,17 +8,6 @@
 #include "strategy.h"
 #include "../rules.h"      
 #include "../gamestate.h"  
-
-
-// Régions stratégiques de la carte
-static MapRegion regions[] = {
-    {{31, 32, 33, 34, 30, 27, 28, 29}, 8, 85}, // Est
-    {{19, 20, 21, 22, 18, 23}, 6, 90},         // Centre
-    {{0, 1, 2, 8, 9, 10}, 6, 80},              // Ouest
-    {{24, 25, 26, 35, 23, 16, 15, 14}, 8, 75}, // Sud
-    {{3, 4, 5, 6, 7, 11, 12, 13}, 8, 70}       // Nord
-};
-static const int NUM_REGIONS = 5;
 
 // Détermine la phase de jeu actuelle pour adapter la stratégie
 int determineGamePhase(GameState* state) {
@@ -38,44 +27,31 @@ int determineGamePhase(GameState* state) {
 }
 
 // Détermination des priorités stratégiques
-// REMPLACEZ determinePriority dans game_analysis.c par cette version
-
 StrategicPriority determinePriority(GameState* state, int phase, CriticalRoute* criticalRoutes, 
                                    int criticalRouteCount, int consecutiveDraws) {
     
-    printf("\n=== DÉTERMINATION DE PRIORITÉ STRATÉGIQUE ===\n");
-    printf("Phase: %d, Routes critiques: %d, Pioches consécutives: %d\n", 
-           phase, criticalRouteCount, consecutiveDraws);
-    
-    // CAS SPÉCIAL 1: Premier tour - objectifs obligatoires
+    // Premier tour - objectifs obligatoires
     if (state->nbObjectives == 0) {
-        printf("PRIORITÉ: DRAW_CARDS (premier tour - objectifs nécessaires)\n");
         return DRAW_CARDS;
     }
     
-    // CAS SPÉCIAL 2: Fin de partie imminente
+    // Fin de partie imminente
     if (state->lastTurn || state->wagonsLeft <= 3 || state->opponentWagonsLeft <= 2) {
-        printf("URGENCE FIN DE PARTIE détectée!\n");
-        
         // Vérifier si on peut compléter un objectif rapidement
         for (int i = 0; i < state->nbObjectives; i++) {
             if (!isObjectiveCompleted(state, state->objectives[i])) {
                 int routesRestantes = countRemainingRoutesForObjective(state, i);
                 if (routesRestantes == 1) {
-                    printf("PRIORITÉ: COMPLETE_OBJECTIVES (objectif %d complétable!)\n", i+1);
                     return COMPLETE_OBJECTIVES;
                 }
             }
         }
-        
-        printf("PRIORITÉ: BUILD_NETWORK (maximiser points immédiats)\n");
         return BUILD_NETWORK;
     }
     
-    // ANALYSE: Compter objectifs complétés vs incomplets
+    // Compter objectifs complétés vs incomplets
     int completedObjectives = 0;
     int incompleteObjectives = 0;
-    int totalObjectiveValue = 0;
     int incompleteObjectiveValue = 0;
     
     for (int i = 0; i < state->nbObjectives; i++) {
@@ -85,13 +61,9 @@ StrategicPriority determinePriority(GameState* state, int phase, CriticalRoute* 
             incompleteObjectives++;
             incompleteObjectiveValue += state->objectives[i].score;
         }
-        totalObjectiveValue += state->objectives[i].score;
     }
     
-    printf("Objectifs: %d complétés, %d incomplets (valeur: %d points)\n",
-           completedObjectives, incompleteObjectives, incompleteObjectiveValue);
-    
-    // ANALYSE: Compter nos cartes totales
+    // Compter nos cartes totales
     int totalCards = 0;
     int maxColorCards = 0;
     for (int i = 1; i < 10; i++) {
@@ -101,9 +73,7 @@ StrategicPriority determinePriority(GameState* state, int phase, CriticalRoute* 
         }
     }
     
-    printf("Cartes: %d total, max d'une couleur: %d\n", totalCards, maxColorCards);
-    
-    // ANALYSE: Routes critiques disponibles
+    // Routes critiques disponibles
     int criticalRoutesReady = 0;
     for (int i = 0; i < criticalRouteCount; i++) {
         if (criticalRoutes[i].hasEnoughCards) {
@@ -111,53 +81,43 @@ StrategicPriority determinePriority(GameState* state, int phase, CriticalRoute* 
         }
     }
     
-    printf("Routes critiques prêtes: %d/%d\n", criticalRoutesReady, criticalRouteCount);
-    
     // LOGIQUE DE DÉCISION SIMPLIFIÉE
     
-    // RÈGLE 1: Routes critiques prêtes = priorité absolue
+    // Routes critiques prêtes = priorité absolue
     if (criticalRoutesReady > 0) {
-        printf("PRIORITÉ: COMPLETE_OBJECTIVES (routes critiques prêtes!)\n");
         return COMPLETE_OBJECTIVES;
     }
     
-    // RÈGLE 2: Début de partie avec peu de cartes = accumuler
+    // Début de partie avec peu de cartes = accumuler
     if (phase == PHASE_EARLY && totalCards < 8) {
-        printf("PRIORITÉ: DRAW_CARDS (début de partie, accumuler cartes)\n");
         return DRAW_CARDS;
     }
     
-    // RÈGLE 3: Beaucoup de cartes = construire
+    // Beaucoup de cartes = construire
     if (totalCards >= 12 || maxColorCards >= 6) {
-        printf("PRIORITÉ: BUILD_NETWORK (beaucoup de cartes disponibles)\n");
         return BUILD_NETWORK;
     }
     
-    // RÈGLE 4: Objectifs incomplets à haute valeur
+    // Objectifs incomplets à haute valeur
     if (incompleteObjectiveValue >= 15 && phase >= PHASE_MIDDLE) {
-        printf("PRIORITÉ: COMPLETE_OBJECTIVES (objectifs de haute valeur: %d points)\n", 
-               incompleteObjectiveValue);
         return COMPLETE_OBJECTIVES;
     }
     
-    // RÈGLE 5: Tous objectifs complétés
+    // Tous objectifs complétés
     if (incompleteObjectives == 0) {
         if (state->nbObjectives < 3 && phase < PHASE_LATE) {
-            printf("PRIORITÉ: DRAW_CARDS (chercher plus d'objectifs)\n");
             return DRAW_CARDS;
         } else {
-            printf("PRIORITÉ: BUILD_NETWORK (tous objectifs complétés)\n");
             return BUILD_NETWORK;
         }
     }
     
-    // RÈGLE 6: Trop de pioches consécutives = forcer action
+    // Trop de pioches consécutives = forcer action
     if (consecutiveDraws >= 4) {
-        printf("PRIORITÉ: BUILD_NETWORK (trop de pioches consécutives: %d)\n", consecutiveDraws);
         return BUILD_NETWORK;
     }
     
-    // RÈGLE 7: Milieu/fin de partie avec objectifs incomplets
+    // Milieu/fin de partie avec objectifs incomplets
     if (phase >= PHASE_MIDDLE && incompleteObjectives > 0) {
         // Vérifier si des objectifs sont "presque" complétables
         int nearlyCompleteObjectives = 0;
@@ -171,21 +131,16 @@ StrategicPriority determinePriority(GameState* state, int phase, CriticalRoute* 
         }
         
         if (nearlyCompleteObjectives > 0) {
-            printf("PRIORITÉ: COMPLETE_OBJECTIVES (%d objectifs presque complétés)\n", 
-                   nearlyCompleteObjectives);
             return COMPLETE_OBJECTIVES;
         }
     }
     
-    // RÈGLE 8: Défaut selon la phase
+    // Défaut selon la phase
     if (phase == PHASE_EARLY) {
-        printf("PRIORITÉ: DRAW_CARDS (défaut début de partie)\n");
         return DRAW_CARDS;
     } else if (totalCards >= 8) {
-        printf("PRIORITÉ: BUILD_NETWORK (défaut avec cartes suffisantes)\n");
         return BUILD_NETWORK;
     } else {
-        printf("PRIORITÉ: DRAW_CARDS (défaut - besoin de cartes)\n");
         return DRAW_CARDS;
     }
 }
@@ -218,7 +173,6 @@ int evaluateRouteUtility(GameState* state, int routeIndex) {
         int path[MAX_CITIES];
         int pathLength = 0;
         
-        // CHANGEMENT: Utiliser findShortestPath pour évaluer l'utilité
         if (findShortestPath(state, objFrom, objTo, path, &pathLength) >= 0) {
             extern int isRouteInPath(int from, int to, int* path, int pathLength);
             if (isRouteInPath(from, to, path, pathLength)) {
@@ -252,7 +206,6 @@ int evaluateRouteUtility(GameState* state, int routeIndex) {
                 if ((from == objFrom || from == objTo || to == objFrom || to == objTo) &&
                     (cityConnectivity[from] >= 2 || cityConnectivity[to] >= 2)) {
                     networkBonus += 100 * state->objectives[i].score;
-                    printf("BONUS MAJEUR: Route %d->%d connecte un hub à un objectif!\n", from, to);
                 }
             }
         }
@@ -265,190 +218,9 @@ int evaluateRouteUtility(GameState* state, int routeIndex) {
     return baseScore + objectiveBonus - wagonPenalty + networkBonus;
 }
 
-// Évaluation avancée de l'utilité d'une route
-int enhancedEvaluateRouteUtility(GameState* state, int routeIndex) {
-    if (routeIndex < 0 || routeIndex >= state->nbTracks) {
-        printf("ERROR: Invalid route index %d in enhancedEvaluateRouteUtility\n", routeIndex);
-        return 0;
-    }
-
-    int utility = evaluateRouteUtility(state, routeIndex);
-    int from = state->routes[routeIndex].from;
-    int to = state->routes[routeIndex].to;
-    int length = state->routes[routeIndex].length;
-    
-    // Bonus pour connexion à notre réseau existant
-    for (int i = 0; i < state->nbClaimedRoutes; i++) {
-        int claimedRouteIndex = state->claimedRoutes[i];
-        if (claimedRouteIndex >= 0 && claimedRouteIndex < state->nbTracks) {
-            if (state->routes[claimedRouteIndex].from == from || 
-                state->routes[claimedRouteIndex].to == from ||
-                state->routes[claimedRouteIndex].from == to || 
-                state->routes[claimedRouteIndex].to == to) {
-                utility += 30;
-                break;
-            }
-        }
-    }
-    
-    // Bonus stratégique pour les routes longues
-    if (length >= 5) {
-        utility += length * 100;
-    } else if (length >= 4) {
-        utility += length * 50;
-    } else if (length >= 3) {
-        utility += length * 20;
-    }
-    
-    // Pénalité pour routes inutiles en fin de partie
-    int phase = determineGamePhase(state);
-    if ((phase == PHASE_LATE || phase == PHASE_FINAL)) {
-        extern int calculateObjectiveProgress(GameState* state, int routeIndex);
-        if (calculateObjectiveProgress(state, routeIndex) == 0) {
-            utility -= 50;
-        }
-    }
-    
-    // Bonus pour routes bloquant l'adversaire
-    if (from < MAX_CITIES && to < MAX_CITIES &&
-        (opponentCitiesOfInterest[from] > 8 || opponentCitiesOfInterest[to] > 8)) {
-        utility += 35;
-    }
-    
-    return utility;
-}
-
-// Évalue l'efficacité d'utilisation de nos cartes
-int evaluateCardEfficiency(GameState* state, int routeIndex) {
-    if (routeIndex < 0 || routeIndex >= state->nbTracks) {
-        return 0;
-    }
-
-    CardColor routeColor = state->routes[routeIndex].color;
-    int length = state->routes[routeIndex].length;
-    
-
-    if (routeColor != LOCOMOTIVE && length <= 2 && state->nbCardsByColor[LOCOMOTIVE] > 0) {
-        return 50;  // Pénaliser utilisation de locomotives pour routes courtes
-    }
-
-    // Pour les routes grises, trouver la couleur la plus efficace
-    if (routeColor == LOCOMOTIVE) {
-        int bestEfficiency = 0;
-        for (int c = 1; c < 9; c++) {  // Ignorer NONE et LOCOMOTIVE
-            if (state->nbCardsByColor[c] > 0) {
-                int cardsNeeded = length;
-                int cardsAvailable = state->nbCardsByColor[c];
-                
-                if (cardsNeeded <= cardsAvailable) {
-                    int efficiency = 150;
-                    if (efficiency > bestEfficiency) {
-                        bestEfficiency = efficiency;
-                    }
-                } else {
-                    int locosNeeded = cardsNeeded - cardsAvailable;
-                    if (locosNeeded <= state->nbCardsByColor[LOCOMOTIVE]) {
-                        int efficiency = 100 - (locosNeeded * 10);
-                        if (efficiency > bestEfficiency) {
-                            bestEfficiency = efficiency;
-                        }
-                    }
-                }
-            }
-        }
-        return bestEfficiency;
-    } 
-    // Pour les routes colorées
-    else {
-        int cardsNeeded = length;
-        int cardsAvailable = state->nbCardsByColor[routeColor];
-        
-        if (cardsNeeded <= cardsAvailable) {
-            return 150;
-        } else {
-            int locosNeeded = cardsNeeded - cardsAvailable;
-            if (locosNeeded <= state->nbCardsByColor[LOCOMOTIVE]) {
-                return 100 - (locosNeeded * 10);
-            }
-        }
-    }
-    
-    return 0;
-}
-
-// Identifie les routes centrales stratégiques
-void identifyAndPrioritizeBottlenecks(GameState* state, int* prioritizedRoutes, int* count) {
-    *count = 0;
-    
-    // 1. Identifier les "hubs" (villes avec plusieurs connexions)
-    int hubCities[MAX_CITIES] = {0};
-    int hubCount = 0;
-    
-    for (int i = 0; i < state->nbCities && hubCount < MAX_CENTRAL_CITIES; i++) {
-        int connections = 0;
-        
-        for (int j = 0; j < state->nbTracks; j++) {
-            if (state->routes[j].from == i || state->routes[j].to == i) {
-                connections++;
-            }
-        }
-        
-        if (connections >= MAX_HUB_CONNECTIONS) {
-            hubCities[hubCount++] = i;
-        }
-    }
-    
-    // 2. Identifier les routes entre hubs (goulots d'étranglement)
-    for (int i = 0; i < hubCount && *count < MAX_ROUTES; i++) {
-        for (int j = i+1; j < hubCount && *count < MAX_ROUTES; j++) {
-            int cityA = hubCities[i];
-            int cityB = hubCities[j];
-            
-            // Vérifier s'il existe une route directe
-            for (int r = 0; r < state->nbTracks; r++) {
-                if (((state->routes[r].from == cityA && state->routes[r].to == cityB) ||
-                     (state->routes[r].from == cityB && state->routes[r].to == cityA)) &&
-                    state->routes[r].owner == 0) {
-                    // C'est une route bottleneck
-                    prioritizedRoutes[(*count)++] = r;
-                }
-            }
-        }
-    }
-    
-    // 3. Ajouter les routes entre régions stratégiques
-    for (int r1 = 0; r1 < NUM_REGIONS && *count < MAX_ROUTES; r1++) {
-        for (int r2 = r1+1; r2 < NUM_REGIONS && *count < MAX_ROUTES; r2++) {
-            // Pour chaque paire de villes entre deux régions
-            for (int c1 = 0; c1 < regions[r1].cityCount && *count < MAX_ROUTES; c1++) {
-                for (int c2 = 0; c2 < regions[r2].cityCount && *count < MAX_ROUTES; c2++) {
-                    int cityA = regions[r1].cities[c1];
-                    int cityB = regions[r2].cities[c2];
-                    
-                    // Vérifier routes directes
-                    for (int r = 0; r < state->nbTracks; r++) {
-                        if (((state->routes[r].from == cityA && state->routes[r].to == cityB) ||
-                             (state->routes[r].from == cityB && state->routes[r].to == cityA)) &&
-                            state->routes[r].owner == 0) {
-                            // Ajouter seulement si pas déjà dans la liste
-                            bool alreadyAdded = false;
-                            for (int k = 0; k < *count; k++) {
-                                if (prioritizedRoutes[k] == r) {
-                                    alreadyAdded = true;
-                                    break;
-                                }
-                            }
-                            
-                            if (!alreadyAdded) {
-                                prioritizedRoutes[(*count)++] = r;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+// SUPPRESSION COMPLÈTE de identifyAndPrioritizeBottlenecks() 
+// Cette fonction utilisait les structures MapRegion supprimées
+// et les constantes MAX_CENTRAL_CITIES, MAX_HUB_CONNECTIONS
 
 // Cherche la meilleure route à prendre en fin de partie
 int evaluateEndgameScore(GameState* state, int routeIndex) {
@@ -480,7 +252,7 @@ void planNextRoutes(GameState* state, int* routesPlan, int count) {
         routesPlan[i] = -1;
     }
     
-    // 1. Priorité aux objectifs
+    // Priorité aux objectifs
     for (int i = 0; i < state->nbObjectives && count > 0; i++) {
         if (!isObjectiveCompleted(state, state->objectives[i])) {
             int path[MAX_CITIES];
@@ -488,7 +260,6 @@ void planNextRoutes(GameState* state, int* routesPlan, int count) {
             int objFrom = state->objectives[i].from;
             int objTo = state->objectives[i].to;
             
-            // CHANGEMENT: Utiliser findShortestPath pour planifier les routes
             if (findShortestPath(state, objFrom, objTo, path, &pathLength) > 0) {
                 for (int j = 0; j < pathLength - 1 && count > 0; j++) {
                     int cityA = path[j];
@@ -517,28 +288,6 @@ void planNextRoutes(GameState* state, int* routesPlan, int count) {
                         }
                     }
                 }
-            }
-        }
-    }
-    
-    // 2. Si plan incomplet, ajouter routes stratégiques
-    if (count > 0) {
-        int strategicRoutes[MAX_ROUTES];
-        int routeCount = 0;
-        identifyAndPrioritizeBottlenecks(state, strategicRoutes, &routeCount);
-        
-        for (int i = 0; i < routeCount && count > 0; i++) {
-            // Vérifier que cette route n'est pas déjà dans le plan
-            bool alreadyPlanned = false;
-            for (int p = 0; p < count; p++) {
-                if (routesPlan[p] == strategicRoutes[i]) {
-                    alreadyPlanned = true;
-                    break;
-                }
-            }
-            
-            if (!alreadyPlanned) {
-                routesPlan[--count] = strategicRoutes[i];
             }
         }
     }

@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <stdarg.h>
 #include "../tickettorideapi/ticketToRide.h"
 #include "../tickettorideapi/clientAPI.h"
 #include "gamestate.h"
@@ -11,17 +10,6 @@
 #include "rules.h"
 
 #define MAX_TURNS 200
-#define DEBUG_LEVEL 0
-
-void debugPrint(int level, const char* format, ...) {
-    if (level <= DEBUG_LEVEL) {
-        va_list args;
-        va_start(args, format);
-        vprintf(format, args);
-        va_end(args);
-        printf("\n");
-    }
-}
 
 void printGameResult(int finalScore, char* finalResultsMessage) {
     printf("\n=== FINAL RESULTS ===\n");
@@ -89,9 +77,8 @@ int main() {
     
     // Initialisation
     GameState gameState;
-    StrategyType strategy = STRATEGY_ADVANCED;
     
-    initPlayer(&gameState, strategy, &gameData);
+    initPlayer(&gameState, &gameData);
 
     if (gameData.starter == 0) {
         printf("We start the game!\n");
@@ -145,7 +132,6 @@ int main() {
         
         // Notre tour
         if (itsOurTurn) {
-            
             updateBoardState(&gameState);
             
             // Log seulement les info importantes
@@ -162,7 +148,7 @@ int main() {
                     firstTurn = false;
                 }
             } else {
-                playCode = playTurn(&gameState, strategy);
+                playCode = playTurn(&gameState);
             }
             
             if (playCode == ALL_GOOD) {

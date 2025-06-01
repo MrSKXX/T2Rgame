@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include "rules.h"
 
-// Vérifie si nous avons assez de cartes pour prendre une route
 int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLocomotives) {
     if (!state || !nbLocomotives) {
         printf("ERROR: Invalid parameters in canClaimRoute\n");
@@ -107,7 +106,6 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
     }
 }
 
-// Recherche les routes que nous pouvons prendre avec nos cartes actuelles
 int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibleColors, int* possibleLocomotives) {
     int count = 0;
     
@@ -229,27 +227,6 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
                             
                             count++;
                         }
-                        
-                        if (routeColor != LOCOMOTIVE) {
-                            if (state->nbCardsByColor[routeColor] > 0) {
-                                if (numColorsToCheck < 9) {
-                                    colorsToCheck[numColorsToCheck++] = routeColor;
-                                }
-                            }
-                            
-                            if (routeSecondColor != NONE && routeSecondColor != routeColor && 
-                                state->nbCardsByColor[routeSecondColor] > 0) {
-                                if (numColorsToCheck < 9) {
-                                    colorsToCheck[numColorsToCheck++] = routeSecondColor;
-                                }
-                            }
-                            
-                            if (state->nbCardsByColor[LOCOMOTIVE] >= length) {
-                                if (numColorsToCheck < 9) {
-                                    colorsToCheck[numColorsToCheck++] = LOCOMOTIVE;
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -263,14 +240,6 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
     printf("Found %d possible routes\n", count);
     
     return count;
-}
-
-int canDrawVisibleCard(CardColor color) {
-    return 1;
-}
-
-int hasEnoughWagons(GameState* state, int length) {
-    return state->wagonsLeft >= length;
 }
 
 int isLastTurn(GameState* state) {
@@ -301,7 +270,6 @@ int isObjectiveCompleted(GameState* state, Objective objective) {
     return state->cityConnected[objective.from][objective.to];
 }
 
-// Calcule le score actuel du joueur
 int calculateScore(GameState* state) {
     int score = 0;
     
@@ -318,16 +286,11 @@ int calculateScore(GameState* state) {
         }
     }
     
-    int objectivesCompleted = 0;
-    int objectivesFailed = 0;
-    
     for (int i = 0; i < state->nbObjectives; i++) {
         if (isObjectiveCompleted(state, state->objectives[i])) {
             score += state->objectives[i].score;
-            objectivesCompleted++;
         } else {
             score -= state->objectives[i].score;
-            objectivesFailed++;
         }
     }
     
@@ -347,7 +310,6 @@ int completeObjectivesCount(GameState* state) {
     return count;
 }
 
-// Validation simple d'un mouvement avant exécution
 int isValidMove(GameState* state, MoveData* move) {
     if (!state || !move) {
         return 0;
@@ -404,7 +366,7 @@ int isValidMove(GameState* state, MoveData* move) {
         
         case DRAW_BLIND_CARD:
         case DRAW_OBJECTIVES:
-            return 1; // Toujours valides
+            return 1;
             
         default:
             printf("VALIDATION FAILED: Unknown action %d\n", move->action);

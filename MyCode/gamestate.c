@@ -50,7 +50,6 @@ void initGameState(GameState* state, GameData* gameData) {
     printf("Game initialized: %d cities, %d tracks\n", state->nbCities, state->nbTracks);
 }
 
-// Met à jour l'état du jeu après avoir reçu une carte - VERSION NETTOYÉE
 void addCardToHand(GameState* state, CardColor card) {
     if (!state) {
         printf("ERROR: Null state in addCardToHand\n");
@@ -64,11 +63,8 @@ void addCardToHand(GameState* state, CardColor card) {
     
     state->cards[state->nbCards++] = card;
     state->nbCardsByColor[card]++;
-    
-
 }
 
-// Met à jour l'état du jeu après avoir joué des cartes pour prendre une route 
 void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLocomotives) {
     if (!state || length <= 0) {
         printf("ERROR: Invalid parameters in removeCardsForRoute\n");
@@ -79,7 +75,6 @@ void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLo
         printf("ERROR: Not enough cards to remove\n");
         return;
     }
-
     
     // Mettre à jour directement les compteurs
     state->nbCardsByColor[color] -= (length - nbLocomotives);
@@ -101,10 +96,8 @@ void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLo
     }
     
     state->wagonsLeft -= length;
-    
 }
 
-// Met à jour l'état du jeu après avoir pris une route
 void addClaimedRoute(GameState* state, int from, int to) {
     if (!state || from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
         printf("ERROR: Invalid parameters in addClaimedRoute (%d -> %d)\n", from, to);
@@ -130,7 +123,6 @@ void addClaimedRoute(GameState* state, int from, int to) {
         state->routes[routeIndex].owner = 1;
         if (state->nbClaimedRoutes < MAX_ROUTES) {
             state->claimedRoutes[state->nbClaimedRoutes++] = routeIndex;
-
         } else {
             printf("ERROR: Cannot add more routes (maximum reached)\n");
         }
@@ -141,7 +133,6 @@ void addClaimedRoute(GameState* state, int from, int to) {
     }
 }
 
-// Met à jour l'état du jeu après une action de l'adversaire
 void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
     if (!state || !moveData) {
         printf("ERROR: NULL parameters in updateAfterOpponentMove\n");
@@ -193,12 +184,10 @@ void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
                     }
                 }
                 state->opponentObjectiveCount += keptObjectives;
-
             }
             break;
 
         case DRAW_OBJECTIVES:
-
             break;
             
         default:
@@ -211,7 +200,6 @@ void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
     }
 }
 
-// Met à jour la matrice de connectivité des villes
 void updateCityConnectivity(GameState* state) {
     extern void invalidatePathCache(void);
     invalidatePathCache();
@@ -266,156 +254,12 @@ void updateCityConnectivity(GameState* state) {
     }
 }
 
-// Ajoute des objectifs à notre main
 void addObjectives(GameState* state, Objective* objectives, int count) {
     for (int i = 0; i < count && state->nbObjectives < MAX_OBJECTIVES; i++) {
         state->objectives[state->nbObjectives++] = objectives[i];
         printf("Added objective: %d->%d (%d pts)\n", 
                objectives[i].from, objectives[i].to, objectives[i].score);
     }
-}
-
-// Affiche l'état du jeu actuel 
-void printGameState(GameState* state) {
-    #ifdef DEBUG_VERBOSE
-    if (!state) {
-        printf("ERROR: Cannot print NULL game state\n");
-        return;
-    }
-    
-    printf("\n--- GAME STATE ---\n");
-    
-    printf("Cities: %d, Tracks: %d\n", state->nbCities, state->nbTracks);
-    
-    printf("Cards in hand (%d):\n", state->nbCards);
-    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                              "Orange", "Black", "Red", "Green", "Locomotive"};
-    
-    for (int i = 0; i < 10; i++) {
-        if (state->nbCardsByColor[i] > 0) {
-            printf("  %s: %d\n", cardNames[i], state->nbCardsByColor[i]);
-        }
-    }
-    
-    printf("Objectives (%d):\n", state->nbObjectives);
-    for (int i = 0; i < state->nbObjectives; i++) {
-        printf("  %d. From %d to %d, score %d", 
-               i+1, state->objectives[i].from, state->objectives[i].to, state->objectives[i].score);
-        
-        int from = state->objectives[i].from;
-        int to = state->objectives[i].to;
-        
-        if (from >= 0 && from < state->nbCities && to >= 0 && to < state->nbCities) {
-            if (state->cityConnected[from][to]) {
-                printf(" [COMPLETED]");
-            }
-        } else {
-            printf(" [INVALID CITIES]");
-        }
-        printf("\n");
-    }
-    
-    printf("Claimed routes (%d):\n", state->nbClaimedRoutes);
-    for (int i = 0; i < state->nbClaimedRoutes; i++) {
-        int routeIndex = state->claimedRoutes[i];
-        if (routeIndex >= 0 && routeIndex < state->nbTracks) {
-            printf("  %d. From %d to %d, length %d, color %s\n", 
-                   i+1, state->routes[routeIndex].from, state->routes[routeIndex].to, 
-                   state->routes[routeIndex].length, 
-                   (state->routes[routeIndex].color < 10) ? cardNames[state->routes[routeIndex].color] : "Invalid");
-        } else {
-            printf("  %d. Invalid route index: %d\n", i+1, routeIndex);
-        }
-    }
-    
-    printf("Wagons left: %d\n", state->wagonsLeft);
-    printf("Opponent wagons left: %d\n", state->opponentWagonsLeft);
-    printf("Visible cards:\n");
-    for (int i = 0; i < 5; i++) {
-        if (state->visibleCards[i] >= 0 && state->visibleCards[i] < 10) {
-            printf("  %d. %s\n", i+1, cardNames[state->visibleCards[i]]);
-        } else {
-            printf("  %d. Invalid card: %d\n", i+1, state->visibleCards[i]);
-        }
-    }
-    printf("------------------\n\n");
-    #endif
-    
- 
-}
-
-// Affiche une représentation visuelle de la matrice de connectivité 
-void printConnectivityMatrix(GameState* state) {
-    #ifdef DEBUG_VERBOSE
-    if (!state) {
-        printf("ERROR: NULL state in printConnectivityMatrix\n");
-        return;
-    }
-
-    printf("\n=== CONNECTIVITY MATRIX ===\n");
-    
-    int maxCitiesToShow = 10;
-    if (state->nbCities < maxCitiesToShow) {
-        maxCitiesToShow = state->nbCities;
-    }
-    
-    printf("    ");
-    for (int j = 0; j < maxCitiesToShow; j++) {
-        printf("%2d ", j);
-    }
-    printf("\n");
-    
-    printf("   ");
-    for (int j = 0; j < maxCitiesToShow; j++) {
-        printf("---");
-    }
-    printf("\n");
-    
-    for (int i = 0; i < maxCitiesToShow; i++) {
-        printf("%2d | ", i);
-        for (int j = 0; j < maxCitiesToShow; j++) {
-            if (i < state->nbCities && j < state->nbCities) {
-                printf("%2d ", state->cityConnected[i][j]);
-            } else {
-                printf(" - ");
-            }
-        }
-        printf("\n");
-    }
-    
-    int connectedPairs = 0;
-    for (int i = 0; i < state->nbCities; i++) {
-        for (int j = i+1; j < state->nbCities; j++) {
-            if (state->cityConnected[i][j]) {
-                connectedPairs++;
-            }
-        }
-    }
-    
-    printf("\nTotal connected city pairs: %d out of %d possible pairs\n", 
-           connectedPairs, (state->nbCities * (state->nbCities - 1)) / 2);
-    
-    printf("\nObjective connectivity status:\n");
-    for (int i = 0; i < state->nbObjectives; i++) {
-        if (i < 0 || i >= MAX_OBJECTIVES) continue;
-        
-        int from = state->objectives[i].from;
-        int to = state->objectives[i].to;
-        
-        if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-            printf("  Objective %d: Invalid cities\n", i+1);
-            continue;
-        }
-        
-        bool connected = state->cityConnected[from][to];
-        printf("  Objective %d: From %d to %d - %s\n", 
-               i+1, from, to, connected ? "CONNECTED" : "not connected");
-    }
-    
-    printf("=========================\n\n");
-    #endif
-    
-
 }
 
 void analyzeExistingNetwork(GameState* state, int* cityConnectivity) {
@@ -437,8 +281,6 @@ void analyzeExistingNetwork(GameState* state, int* cityConnectivity) {
             }
         }
     }
-    
- 
 }
 
 void findMissingConnections(GameState* state, int* cityConnectivity, MissingConnection* missingConnections, int* count) {
@@ -484,6 +326,4 @@ void findMissingConnections(GameState* state, int* cityConnectivity, MissingConn
             }
         }
     }
-    
-
 }

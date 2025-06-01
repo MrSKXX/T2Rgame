@@ -1,6 +1,6 @@
 /**
  * strategy_core.c
- * Interface principale du système de stratégie 
+ * Interface principale du système de stratégie - VERSION FINALE
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,14 +33,13 @@ int safeAdvancedStrategy(GameState* state, MoveData* moveData) {
         moveData->action = DRAW_BLIND_CARD;
     }
     
+    // Log simple du mouvement final
     switch (moveData->action) {
         case CLAIM_ROUTE:
             printf("Taking route %d->%d\n", moveData->claimRoute.from, moveData->claimRoute.to);
             break;
         case DRAW_CARD:
-            break;
         case DRAW_BLIND_CARD:
-            break;
         default:
             break;
     }
@@ -48,25 +47,21 @@ int safeAdvancedStrategy(GameState* state, MoveData* moveData) {
     return 1;
 }
 
-int decideNextMove(GameState* state, StrategyType strategy, MoveData* moveData) {
-    (void)strategy; 
+int decideNextMove(GameState* state, MoveData* moveData) {
     return safeAdvancedStrategy(state, moveData);
 }
 
-// Stratégie principale optimisée 
+// Stratégie principale optimisée
 int superAdvancedStrategy(GameState* state, MoveData* moveData) {
-
-    
-    // Variables de suivi stratégique
     static int consecutiveDraws = 0;
     
-    // 1. Analyse de l'état du jeu et détermination de la phase
+    // Analyse de l'état du jeu et détermination de la phase
     int phase = determineGamePhase(state);
     
     // Incrémenter compteur de tours
     state->turnCount++;
     
-    // 2. Analyse du réseau existant pour une planification stratégique
+    // Analyse du réseau existant pour une planification stratégique
     int cityConnectivity[MAX_CITIES] = {0};
     analyzeExistingNetwork(state, cityConnectivity);
 
@@ -86,38 +81,21 @@ int superAdvancedStrategy(GameState* state, MoveData* moveData) {
             break;
         }
     }
-    
-    if (missingConnectionCount > 0) {
-
-    }
    
-    // 3. Identifier le profil de l'adversaire 
+    // Identifier le profil de l'adversaire (analyse silencieuse)
     if (state->turnCount % 5 == 0) {
         updateOpponentProfile(state);
     }
     
-    // 4. Déterminer la priorité stratégique
+    // Déterminer la priorité stratégique
     StrategicPriority priority = determinePriority(state, phase, criticalRoutes, 
                                                    criticalRouteCount, consecutiveDraws);
     
-    // 5. Forcer prise de route après trop de pioches consécutives
+    // Forcer prise de route après trop de pioches consécutives
     if (consecutiveDraws >= 4 && hasCriticalRoutesToClaim) {
         priority = BUILD_NETWORK;
     }
     
-    // 6. Exécuter la décision selon la priorité
+    // Exécuter la décision selon la priorité
     return executePriority(state, moveData, priority, criticalRoutes, criticalRouteCount, &consecutiveDraws);
-}
-
-// Interfaces pour les anciennes stratégies (toutes redirigent vers superAdvancedStrategy)
-int basicStrategy(GameState* state, MoveData* moveData) {
-    return superAdvancedStrategy(state, moveData);
-}
-
-int dijkstraStrategy(GameState* state, MoveData* moveData) {
-    return superAdvancedStrategy(state, moveData);
-}
-
-int advancedStrategy(GameState* state, MoveData* moveData) {
-    return superAdvancedStrategy(state, moveData);
 }

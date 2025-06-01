@@ -8,26 +8,6 @@
 
 extern void checkObjectivesPaths(GameState* state);
 
-void printCardName(CardColor card) {
-    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                              "Orange", "Black", "Red", "Green", "Locomotive"};
-    if (card >= 0 && card < 10) {
-        printf("Card color: %s\n", cardNames[card]);
-    } else {
-        printf("Unknown card: %d\n", card);
-    }
-}
-
-void printObjective(Objective objective) {
-    printf("From city %d to city %d, score %d\n", 
-           objective.from, objective.to, objective.score);
-    printf("  From: ");
-    printCity(objective.from);
-    printf(" to ");
-    printCity(objective.to);
-    printf("\n");
-}
-
 void cleanupMoveResult(MoveResult *moveResult) {
     if (moveResult->opponentMessage) free(moveResult->opponentMessage);
     if (moveResult->message) free(moveResult->message);
@@ -35,7 +15,7 @@ void cleanupMoveResult(MoveResult *moveResult) {
     moveResult->message = NULL;
 }
 
-void initPlayer(GameState* state, StrategyType strategy, GameData* gameData) {
+void initPlayer(GameState* state, GameData* gameData) {
     if (!state || !gameData) {
         printf("Error: NULL state or gameData in initPlayer\n");
         return;
@@ -43,10 +23,8 @@ void initPlayer(GameState* state, StrategyType strategy, GameData* gameData) {
     
     initGameState(state, gameData);
     
-    printf("Player initialized with strategy type: %d\n", strategy);
+    printf("Player initialized\n");
     printf("Starting game with %d cities and %d tracks\n", state->nbCities, state->nbTracks);
-    
-    printf("Debug - Wagons left after init: %d\n", state->wagonsLeft);
     
     for (int i = 0; i < 4; i++) {
         if (gameData->cards[i] >= 0 && gameData->cards[i] < 10) {
@@ -55,8 +33,6 @@ void initPlayer(GameState* state, StrategyType strategy, GameData* gameData) {
             printf("Warning: Invalid card color: %d\n", gameData->cards[i]);
         }
     }
-    
-    printGameState(state);
 }
 
 ResultCode playFirstTurn(GameState* state) {
@@ -90,9 +66,6 @@ ResultCode playFirstTurn(GameState* state) {
             printf("WARNING: Invalid objective received: From %d to %d\n", 
                    myMoveResult.objectives[i].from, myMoveResult.objectives[i].to);
             objectivesValid = false;
-        } else {
-            printf("Objective %d: ", i+1);
-            printObjective(myMoveResult.objectives[i]);
         }
     }
     
@@ -163,7 +136,7 @@ ResultCode playFirstTurn(GameState* state) {
     return ALL_GOOD;
 }
 
-ResultCode playTurn(GameState* state, StrategyType strategy) {
+ResultCode playTurn(GameState* state) {
     ResultCode returnCode;
     MoveData myMove;
     MoveResult myMoveResult = {0};
@@ -184,8 +157,6 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
     checkObjectivesPaths(state);
 
     if (cardDrawnThisTurn == 1) {
-        printf("Second card draw this turn\n");
-        
         CardColor cardToDraw = (CardColor)-1;
         for (int i = 0; i < 5; i++) {
             if (state->visibleCards[i] != LOCOMOTIVE && state->visibleCards[i] != NONE) {
@@ -197,16 +168,14 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
         if (cardToDraw != (CardColor)-1) {
             myMove.action = DRAW_CARD;
             myMove.drawCard = cardToDraw;
-            printf("Drawing second visible card: %d\n", cardToDraw);
         } else {
             myMove.action = DRAW_BLIND_CARD;
-            printf("Drawing second blind card\n");
         }
         
         cardDrawnThisTurn = 0;
     } else {
-        if (!decideNextMove(state, strategy, &myMove)) {
-            printf("No specific move decided, drawing blind card\n");
+        int moveResult = decideNextMove(state, &myMove);
+        if (moveResult != 1) {
             myMove.action = DRAW_BLIND_CARD;
         }
     }
@@ -216,7 +185,7 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
         CardColor color = myMove.claimRoute.color;
         
         if (color < PURPLE || color > LOCOMOTIVE) {
-            printf("ERREUR CRITIQUE: Couleur invalide détectée: %d, correction à GREEN (8)\n", color);
+            printf("ERROR: Invalid color detected: %d, correcting to GREEN (8)\n", color);
             myMove.claimRoute.color = GREEN;
         }
         
@@ -228,7 +197,7 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
             if (routeColor != LOCOMOTIVE && color != routeColor && 
                 color != state->routes[routeIndex].secondColor && color != LOCOMOTIVE) {
                 
-                printf("CORRECTION: Couleur incorrecte pour route %d->%d (couleur choisie: %d, route: %d)\n", 
+                printf("CORRECTION: Wrong color for route %d->%d (chosen: %d, route: %d)\n", 
                       myMove.claimRoute.from, myMove.claimRoute.to, color, routeColor);
                 
                 if (state->nbCardsByColor[routeColor] >= length) {
@@ -241,38 +210,18 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
                     myMove.claimRoute.color = routeColor;
                     myMove.claimRoute.nbLocomotives = length - state->nbCardsByColor[routeColor];
                 } else {
-                    printf("ERREUR CRITIQUE: Pas assez de cartes pour cette route! Piochage à la place.\n");
+                    printf("ERROR: Not enough cards for this route! Drawing instead.\n");
                     myMove.action = DRAW_BLIND_CARD;
                 }
             }
         }
     }
     
-    printf("Action: ");
-    switch (myMove.action) {
-        case CLAIM_ROUTE:
-            printf("Claim route %d -> %d (color %d, locos %d)\n", 
-                   myMove.claimRoute.from, myMove.claimRoute.to, 
-                   myMove.claimRoute.color, myMove.claimRoute.nbLocomotives);
-            break;
-        case DRAW_CARD:
-            printf("Draw visible card %d\n", myMove.drawCard);
-            break;
-        case DRAW_BLIND_CARD:
-            printf("Draw blind card\n");
-            break;
-        case DRAW_OBJECTIVES:
-            printf("Draw objectives\n");
-            break;
-        default:
-            printf("Unknown action %d\n", myMove.action);
-    }
-
     // Vérification ultime pour CLAIM_ROUTE
     if (myMove.action == CLAIM_ROUTE) {
         if (myMove.claimRoute.from < 0 || myMove.claimRoute.from >= state->nbCities || 
             myMove.claimRoute.to < 0 || myMove.claimRoute.to >= state->nbCities) {
-            printf("ERREUR FATALE: Tentative de prendre une route avec villes invalides: %d -> %d\n", 
+            printf("FATAL ERROR: Invalid cities: %d -> %d\n", 
                   myMove.claimRoute.from, myMove.claimRoute.to);
             myMove.action = DRAW_BLIND_CARD;
         }
@@ -287,7 +236,7 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
                     routeFound = true;
                     
                     if (state->routes[i].owner != 0) {
-                        printf("ERREUR FATALE: Tentative de prendre une route déjà prise: %d -> %d\n", 
+                        printf("FATAL ERROR: Route already taken: %d -> %d\n", 
                               myMove.claimRoute.from, myMove.claimRoute.to);
                         myMove.action = DRAW_BLIND_CARD;
                     }
@@ -296,14 +245,14 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
             }
             
             if (!routeFound) {
-                printf("ERREUR FATALE: Route inexistante: %d -> %d\n", 
+                printf("FATAL ERROR: Route does not exist: %d -> %d\n", 
                       myMove.claimRoute.from, myMove.claimRoute.to);
                 myMove.action = DRAW_BLIND_CARD;
             }
         }
         
         if (myMove.claimRoute.color < PURPLE || myMove.claimRoute.color > LOCOMOTIVE) {
-            printf("ERREUR FATALE: Couleur invalide: %d\n", myMove.claimRoute.color);
+            printf("FATAL ERROR: Invalid color: %d\n", myMove.claimRoute.color);
             myMove.action = DRAW_BLIND_CARD;
         }
     }
@@ -319,7 +268,7 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
             strstr(myMoveResult.message, "Final Score"))) {
             
             printf("\n==================================================\n");
-            printf("           RÉSULTAT FINAL DÉTECTÉ                 \n");
+            printf("           FINAL RESULT DETECTED                 \n");
             printf("==================================================\n");
             printf("%s\n", myMoveResult.message);
             printf("==================================================\n\n");
@@ -352,7 +301,6 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
                 }
                 
                 removeCardsForRoute(state, myMove.claimRoute.color, routeLength, myMove.claimRoute.nbLocomotives);
-                printf("Route claimed successfully\n");
             } else {
                 printf("WARNING: CLAIM_ROUTE not confirmed by server, state: %d\n", myMoveResult.state);
             }
@@ -361,17 +309,13 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
             
         case DRAW_CARD:
             addCardToHand(state, myMove.drawCard);
-            printf("Card drawn successfully\n");
             
             if (myMove.drawCard == LOCOMOTIVE) {
-                printf("Drew a locomotive - turn ends\n");
                 cardDrawnThisTurn = 0;
             } else {
                 if (cardDrawnThisTurn == 0) {
-                    printf("Drew non-locomotive card - can draw second card\n");
                     cardDrawnThisTurn = myMoveResult.replay ? 1 : 0;
                 } else {
-                    printf("Drew second card - turn ends\n");
                     cardDrawnThisTurn = 0;
                 }
             }
@@ -379,25 +323,19 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
             
         case DRAW_BLIND_CARD:
             addCardToHand(state, myMoveResult.card);
-            printf("Drew blind card: %d\n", myMoveResult.card);
             
             if (myMoveResult.card == LOCOMOTIVE && !myMoveResult.replay) {
-                printf("Blind card is a locomotive that doesn't allow second draw\n");
                 cardDrawnThisTurn = 0;
             } else {
                 if (cardDrawnThisTurn == 0 && myMoveResult.replay) {
-                    printf("Can draw a second card\n");
                     cardDrawnThisTurn = 1;
                 } else {
-                    printf("Turn ends\n");
                     cardDrawnThisTurn = 0;
                 }
             }
             break;
             
         case DRAW_OBJECTIVES:
-            printf("Received objectives to choose from\n");
-            
             bool chooseObjectives[3] = {true, true, true};
             chooseObjectivesStrategy(state, myMoveResult.objectives, chooseObjectives);
             
@@ -431,7 +369,6 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
             
             addObjectives(state, chosenObjectives, objectivesToKeep);
             
-            printf("Chose %d objectives\n", objectivesToKeep);
             cleanupMoveResult(&chooseMoveResult);
             
             cardDrawnThisTurn = 0;
@@ -445,8 +382,6 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
     updateCityConnectivity(state);
     
     if (cardDrawnThisTurn == 1) {
-        printf("\nNow drawing second card\n");
-        
         ResultCode updateResult = getBoardState(&boardState);
         if (updateResult != ALL_GOOD) {
             printf("Error getting board state for second card: 0x%x\n", updateResult);
@@ -471,10 +406,8 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
         if (cardToDraw != (CardColor)-1) {
             secondCardMove.action = DRAW_CARD;
             secondCardMove.drawCard = cardToDraw;
-            printf("Drawing second visible card: %d\n", cardToDraw);
         } else {
             secondCardMove.action = DRAW_BLIND_CARD;
-            printf("Drawing second blind card\n");
         }
         
         returnCode = sendMove(&secondCardMove, &secondCardResult);
@@ -487,10 +420,8 @@ ResultCode playTurn(GameState* state, StrategyType strategy) {
         
         if (secondCardMove.action == DRAW_CARD) {
             addCardToHand(state, secondCardMove.drawCard);
-            printf("Second visible card drawn\n");
         } else {
             addCardToHand(state, secondCardResult.card);
-            printf("Second blind card drawn: %d\n", secondCardResult.card);
         }
         
         cardDrawnThisTurn = 0;
