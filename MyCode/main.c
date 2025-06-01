@@ -13,7 +13,6 @@
 #define MAX_TURNS 200
 #define DEBUG_LEVEL 0
 
-
 void debugPrint(int level, const char* format, ...) {
     if (level <= DEBUG_LEVEL) {
         va_list args;
@@ -25,16 +24,16 @@ void debugPrint(int level, const char* format, ...) {
 }
 
 void printGameResult(int finalScore, char* finalResultsMessage) {
-    printf("\n=== RÉSULTATS FINAUX ===\n");
+    printf("\n=== FINAL RESULTS ===\n");
     
     if (finalResultsMessage && strlen(finalResultsMessage) > 0) {
         printf("%s\n", finalResultsMessage);
     } else {
-        printf("Impossible de récupérer les résultats du serveur.\n");
+        printf("Could not retrieve results from server.\n");
     }
     
-    printf("Notre score: %d\n", finalScore);
-    printf("======================\n\n");
+    printf("Our score: %d\n", finalScore);
+    printf("====================\n\n");
 }
 
 bool updateBoardState(GameState* gameState) {
@@ -71,7 +70,7 @@ int main() {
     // Connexion
     ResultCode result = connectToCGS(serverAddress, serverPort, playerName);
     if (result != ALL_GOOD) {
-        printf("Échec connexion serveur: 0x%x\n", result);
+        printf("Connection failed: 0x%x\n", result);
         return 1;
     }
     
@@ -81,11 +80,11 @@ int main() {
 
     result = sendGameSettings(gameSettings, &gameData);
     if (result != ALL_GOOD) {
-        printf("Échec configuration: 0x%x\n", result);
+        printf("Settings failed: 0x%x\n", result);
         return 1;
     }
 
-    printf("Jeu démarré: %s, Seed: %d, Starter: %d\n", 
+    printf("Game started: %s, Seed: %d, Starter: %d\n", 
            gameData.gameName, gameData.gameSeed, gameData.starter);
     
     // Initialisation
@@ -93,13 +92,13 @@ int main() {
     StrategyType strategy = STRATEGY_ADVANCED;
     
     initPlayer(&gameState, strategy, &gameData);
-if (gameData.starter == 0) {
-    printf("Nous commençons la partie !\n");
-    // Jouer directement le premier tour
-    playFirstTurn(&gameState);
-}
+
+    if (gameData.starter == 0) {
+        printf("We start the game!\n");
+        playFirstTurn(&gameState);
+    }
+
     printBoard();
-    printGameState(&gameState);
     
     // Variables
     int turnCounter = 0;
@@ -118,7 +117,7 @@ if (gameData.starter == 0) {
         
         // Détecter fin de partie
         if (currentResult.message && isGameOver(currentResult.message)) {
-            printf("Fin de partie: %s\n", currentResult.message);
+            printf("Game over: %s\n", currentResult.message);
             strncpy(lastErrorMessage, currentResult.message, sizeof(lastErrorMessage)-1);
             cleanupMoveResult(&currentResult);
             break;
@@ -127,7 +126,6 @@ if (gameData.starter == 0) {
         bool itsOurTurn = false;
         
         if (currentCode == ALL_GOOD) {
-            printf("\n=== TOUR %d (Adversaire) ===\n", turnCounter);
             updateAfterOpponentMove(&gameState, &dummyMove);
             
             if (gameState.opponentWagonsLeft <= 2) {
@@ -147,13 +145,14 @@ if (gameData.starter == 0) {
         
         // Notre tour
         if (itsOurTurn) {
-            printf("\n=== TOUR %d (Notre tour) ===\n", turnCounter);
             
             updateBoardState(&gameState);
-            printBoard();
             
-            printf("Wagons - Nous: %d, Adversaire: %d\n", 
-                   gameState.wagonsLeft, gameState.opponentWagonsLeft);
+            // Log seulement les info importantes
+            if (turnCounter % 5 == 0 || gameState.lastTurn) {
+                printf("Turn %d - Wagons: Us=%d, Opp=%d\n", 
+                       turnCounter, gameState.wagonsLeft, gameState.opponentWagonsLeft);
+            }
             
             ResultCode playCode;
             
@@ -194,14 +193,16 @@ if (gameData.starter == 0) {
                 }
             }
             
-            printGameState(&gameState);
-            int currentScore = calculateScore(&gameState);
-            printf("Score actuel: %d\n", currentScore);
+            // Log score seulement périodiquement
+            if (turnCounter % 10 == 0 || gameState.lastTurn) {
+                int currentScore = calculateScore(&gameState);
+                printf("Score: %d\n", currentScore);
+            }
         }
     }
     
     // Fin de partie
-    printf("\n===== FIN DE PARTIE =====\n");
+    printf("\n===== GAME OVER =====\n");
     int finalScore = calculateScore(&gameState);
     
     printBoard();
@@ -225,7 +226,7 @@ if (gameData.starter == 0) {
     }
     else {
         snprintf(finalResultsMessage, sizeof(finalResultsMessage),
-                "Score final: %d\nWagons restants: %d\nObjectifs complétés: %d/%d\n",
+                "Final score: %d\nWagons left: %d\nObjectives completed: %d/%d\n",
                 finalScore, gameState.wagonsLeft, 
                 completedObjectives, gameState.nbObjectives);
     }

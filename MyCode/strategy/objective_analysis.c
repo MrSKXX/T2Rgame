@@ -1,6 +1,6 @@
 /**
  * objective_analysis.c
- * Analyse et gestion des objectifs - VERSION CORRIGÉE
+ * Analyse et gestion des objectifs 
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,11 +10,9 @@
 #include "../rules.h"      
 #include "../gamestate.h"  
 
-
 // Évalue combien une route aide à compléter nos objectifs
 int calculateObjectiveProgress(GameState* state, int routeIndex) {
     if (!state || routeIndex < 0 || routeIndex >= state->nbTracks) {
-        printf("ERROR: Invalid parameters in calculateObjectiveProgress\n");
         return 0;
     }
 
@@ -26,7 +24,6 @@ int calculateObjectiveProgress(GameState* state, int routeIndex) {
         return 0;
     }
     
-    // Utilisation d'une valeur de 200 directement au lieu de la constante OBJECTIVE_MULTIPLIER
     const int objectiveMultiplier = 200;
     
     // Vérifier chaque objectif non complété
@@ -45,7 +42,7 @@ int calculateObjectiveProgress(GameState* state, int routeIndex) {
             continue;
         }
         
-        // Connexion directe - priorité importante
+        // Connexion directe priorité importante
         if ((from == objFrom && to == objTo) || (from == objTo && to == objFrom)) {
             progress += objScore * objectiveMultiplier * 5;
             continue;
@@ -54,14 +51,13 @@ int calculateObjectiveProgress(GameState* state, int routeIndex) {
         // Combien de routes manquent pour cet objectif
         int remainingRoutes = countRemainingRoutesForObjective(state, i);
         
-        // Objectif presque complété - priorité élevée
+        // Objectif presque complété priorité élevée
         if (remainingRoutes == 1) {
             int finalRouteBonus = objScore * objectiveMultiplier * 3;
             
             // Vérifier si cette route est la dernière nécessaire
             int path[MAX_CITIES];
             int pathLength = 0;
-            // CHANGEMENT: Utiliser findShortestPath pour l'évaluation
             if (findShortestPath(state, objFrom, objTo, path, &pathLength) > 0) {
                 for (int j = 0; j < pathLength - 1; j++) {
                     if ((path[j] == from && path[j+1] == to) || (path[j] == to && path[j+1] == from)) {
@@ -75,7 +71,6 @@ int calculateObjectiveProgress(GameState* state, int routeIndex) {
         // Route normale sur un chemin d'objectif
         int path[MAX_CITIES];
         int pathLength = 0;
-        // CHANGEMENT: Utiliser findShortestPath pour l'évaluation
         int distance = findShortestPath(state, objFrom, objTo, path, &pathLength);
         
         if (distance > 0 && pathLength > 0) {
@@ -118,7 +113,6 @@ void identifyCriticalRoutes(GameState* state, CriticalRoute* criticalRoutes, int
             int objTo = state->objectives[i].to;
             int objScore = state->objectives[i].score;
             
-            // CHANGEMENT: Utiliser findShortestPath pour identifier les routes critiques
             int path[MAX_CITIES];
             int pathLength = 0;
             if (findShortestPath(state, objFrom, objTo, path, &pathLength) > 0) {
@@ -155,14 +149,6 @@ void identifyCriticalRoutes(GameState* state, CriticalRoute* criticalRoutes, int
                             
                             if (routeColor != LOCOMOTIVE) {  // Si ce n'est pas une route grise
                                 if (bestColor != routeColor && bestColor != routeSecondColor && bestColor != LOCOMOTIVE) {
-                                    printf("ERREUR CRITIQUE: Couleur %d incorrecte pour route %d->%d (couleurs valides: %d", 
-                                        bestColor, cityA, cityB, routeColor);
-                                    
-                                    if (routeSecondColor != NONE) {
-                                        printf(", %d", routeSecondColor);
-                                    }
-                                    printf(")\n");
-                                    
                                     hasCards = false;  // Marquer comme n'ayant pas assez de cartes
                                 }
                             }
@@ -201,9 +187,6 @@ void identifyCriticalRoutes(GameState* state, CriticalRoute* criticalRoutes, int
                             criticalRoutes[*count].nbLocomotives = nbLocomotives;
                             criticalRoutes[*count].hasEnoughCards = hasCards;
                             (*count)++;
-                            
-                            printf("Route CRITIQUE identifiée: %d -> %d pour objectif %d, priorité %d, cartes %s\n", 
-                                  cityA, cityB, i+1, priority, hasCards ? "DISPONIBLES" : "INSUFFISANTES");
                         }
                     }
                 }
@@ -223,15 +206,13 @@ void identifyCriticalRoutes(GameState* state, CriticalRoute* criticalRoutes, int
     }
 }
 
-// Analyse détaillée des chemins pour les objectifs
+// Analyse détaillée des chemins pour les objectifs 
 void checkObjectivesPaths(GameState* state) {
     if (!state) {
-        printf("ERROR: Null state in checkObjectivesPaths\n");
         return;
     }
     
-    printf("\n=== OBJECTIVE PATHS ANALYSIS ===\n");
-    
+    // L'analyse continue en arrière-plan sans polluer la sortie
     for (int i = 0; i < state->nbObjectives; i++) {
         if (i < 0 || i >= MAX_OBJECTIVES) {
             continue;
@@ -239,17 +220,12 @@ void checkObjectivesPaths(GameState* state) {
         
         int from = state->objectives[i].from;
         int to = state->objectives[i].to;
-        int score = state->objectives[i].score;
         
         if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-            printf("ERROR: Invalid cities in objective %d: from %d to %d\n", i, from, to);
             continue;
         }
         
         bool completed = isObjectiveCompleted(state, state->objectives[i]);
-        
-        printf("Objective %d: From %d to %d, score %d %s\n", 
-             i+1, from, to, score, completed ? "[COMPLETED]" : "");
         
         if (completed) {
             continue;
@@ -257,18 +233,9 @@ void checkObjectivesPaths(GameState* state) {
         
         int path[MAX_CITIES];
         int pathLength = 0;
-        // CHANGEMENT: Utiliser findShortestPath pour l'analyse des objectifs
         int distance = findShortestPath(state, from, to, path, &pathLength);
-        printf("  Utilisation du chemin le plus court et direct\n");   
 
         if (distance > 0 && pathLength > 0) {
-            printf("  Path exists, length %d: ", pathLength);
-            for (int j = 0; j < pathLength && j < MAX_CITIES; j++) {
-                printf("%d ", path[j]);
-            }
-            printf("\n");
-            
-            printf("  Routes needed:\n");
             int availableRoutes = 0;
             int claimedRoutes = 0;
             int blockedRoutes = 0;
@@ -278,70 +245,35 @@ void checkObjectivesPaths(GameState* state) {
                 int cityB = path[j+1];
                 
                 if (cityA < 0 || cityA >= state->nbCities || cityB < 0 || cityB >= state->nbCities) {
-                    printf("    WARNING: Invalid cities in path: %d to %d\n", cityA, cityB);
                     continue;
                 }
-                
-                bool routeFound = false;
                 
                 for (int k = 0; k < state->nbTracks; k++) {
                     if ((state->routes[k].from == cityA && state->routes[k].to == cityB) ||
                         (state->routes[k].from == cityB && state->routes[k].to == cityA)) {
                         
-                        routeFound = true;
-                        printf("    %d to %d: ", cityA, cityB);
-                        
                         if (state->routes[k].owner == 0) {
-                            printf("Available (length %d, color ", state->routes[k].length);
-                            printf("Card color: %s\n", 
-                                 (state->routes[k].color < 10) ? (const char*[]){
-                                    "None", "Purple", "White", "Blue", "Yellow", 
-                                    "Orange", "Black", "Red", "Green", "Locomotive"
-                                 }[state->routes[k].color] : "Unknown");
                             availableRoutes++;
                         } else if (state->routes[k].owner == 1) {
-                            printf("Already claimed by us\n");
                             claimedRoutes++;
                         } else {
-                            printf("BLOCKED by opponent\n");
                             blockedRoutes++;
                         }
                         break;
                     }
                 }
-                
-                if (!routeFound) {
-                    printf("    WARNING: No route found between %d and %d\n", cityA, cityB);
-                }
             }
-            
-            printf("  Path status: %d available, %d claimed, %d blocked\n", 
-                  availableRoutes, claimedRoutes, blockedRoutes);
             
             if (blockedRoutes > 0) {
-                printf("  WARNING: Path is BLOCKED by opponent! Objective might be impossible.\n");
-            } else if (availableRoutes == 0) {
-                printf("  GOOD: All routes on path already claimed by us. Objective will be completed.\n");
-            } else {
-                printf("  ACTION NEEDED: %d more routes to claim to complete this objective.\n", 
-                     availableRoutes);
+                printf("WARNING: Objective %d blocked by opponent\n", i+1);
             }
-        } else {
-            printf("  NO PATH EXISTS! Objective is impossible to complete.\n");
         }
     }
-    
-    printf("================================\n\n");
 }
 
-// Fonction de choix des objectifs optimisée
-// REMPLACEZ improvedObjectiveEvaluation dans objective_analysis.c par cette version
-
+// Fonction de choix des objectifs optimisée 
 void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* chooseObjectives) {
-    printf("\n=== ÉVALUATION SIMPLIFIÉE DES OBJECTIFS ===\n");
-    
     if (!state || !objectives || !chooseObjectives) {
-        printf("ERREUR: Paramètres NULL dans improvedObjectiveEvaluation\n");
         return;
     }
     
@@ -353,8 +285,6 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
     // Déterminer si c'est le premier tour
     bool isFirstTurn = (state->nbObjectives == 0);
     int phase = determineGamePhase(state);
-    
-    printf("Phase de jeu: %d, Premier tour: %s\n", phase, isFirstTurn ? "OUI" : "NON");
     
     // Structure simple pour évaluer chaque objectif
     typedef struct {
@@ -379,11 +309,8 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
         int to = objectives[i].to;
         int points = objectives[i].score;
         
-        printf("\nObjectif %d: De %d à %d pour %d points\n", i+1, from, to, points);
-        
         // Vérifier la validité des villes
         if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-            printf("  REJETÉ: Villes invalides\n");
             continue;
         }
         
@@ -393,11 +320,8 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
         int distance = findShortestPath(state, from, to, path, &pathLength);
         
         if (distance <= 0) {
-            printf("  REJETÉ: Aucun chemin possible\n");
             continue;
         }
-        
-        printf("  Chemin trouvé: %d segments, distance totale %d\n", pathLength - 1, distance);
         
         // Analyser la faisabilité
         int routesNeeded = 0;
@@ -423,33 +347,27 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
                         routesBlocked++;
                         hasBlockedRoutes = true;
                     }
-                    // Si owner == 1, c'est déjà notre route
                     break;
                 }
             }
             
             if (!routeFound) {
-                printf("  ERREUR: Route manquante entre %d et %d\n", cityA, cityB);
                 hasBlockedRoutes = true;
             }
         }
         
         // Rejeter si des routes sont bloquées
         if (hasBlockedRoutes) {
-            printf("  REJETÉ: %d routes bloquées par l'adversaire\n", routesBlocked);
             continue;
         }
         
         // Rejeter si trop long
         if (distance > 12) {
-            printf("  REJETÉ: Chemin trop long (%d > 12)\n", distance);
             continue;
         }
         
         // Rejeter si pas assez de wagons
         if (totalWagons > state->wagonsLeft + 5) { // Marge de 5 wagons
-            printf("  REJETÉ: Trop de wagons nécessaires (%d, nous avons %d)\n", 
-                   totalWagons, state->wagonsLeft);
             continue;
         }
         
@@ -468,9 +386,6 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
         if (totalWagons > 0) {
             evalResults[i].efficiency = (float)points / totalWagons;
         }
-        
-        printf("  FAISABLE: Difficulté %d/5, Efficacité %.2f pts/wagon\n", 
-               evalResults[i].difficulty, evalResults[i].efficiency);
     }
     
     // Trier par qualité (efficacité d'abord, puis difficulté)
@@ -503,21 +418,16 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
     }
     
     // Stratégie de sélection selon la phase
-    printf("\nSTRATÉGIE DE SÉLECTION:\n");
-    
     if (isFirstTurn) {
         // Premier tour : OBLIGATOIREMENT au moins 2 objectifs
-        printf("PREMIER TOUR: Minimum 2 objectifs requis\n");
         
         // Prendre les 2 meilleurs s'ils sont faisables
         if (evalResults[0].feasible) {
             chooseObjectives[evalResults[0].index] = true;
-            printf("  Sélectionné: Objectif %d (meilleur)\n", evalResults[0].index + 1);
         }
         
         if (evalResults[1].feasible) {
             chooseObjectives[evalResults[1].index] = true;
-            printf("  Sélectionné: Objectif %d (deuxième)\n", evalResults[1].index + 1);
         }
         
         // Si moins de 2 sélectionnés, forcer le choix
@@ -527,7 +437,6 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
         }
         
         if (selected < 2) {
-            printf("  CORRECTION: Moins de 2 objectifs, sélection forcée\n");
             chooseObjectives[evalResults[0].index] = true;
             chooseObjectives[evalResults[1].index] = true;
         }
@@ -535,13 +444,10 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
         // Troisième objectif seulement s'il est excellent
         if (evalResults[2].feasible && evalResults[2].efficiency > 0.6f && evalResults[2].difficulty <= 2) {
             chooseObjectives[evalResults[2].index] = true;
-            printf("  Bonus: Objectif %d (excellent)\n", evalResults[2].index + 1);
         }
     }
     else {
         // Tours suivants : plus sélectif
-        printf("TOUR NORMAL: Sélection selon phase %d\n", phase);
-        
         int maxObjectifs = 1;
         float seuilEfficacite = 0.4f;
         
@@ -564,37 +470,27 @@ void improvedObjectiveEvaluation(GameState* state, Objective* objectives, bool* 
                 
                 chooseObjectives[evalResults[i].index] = true;
                 selected++;
-                printf("  Sélectionné: Objectif %d (efficacité %.2f)\n", 
-                       evalResults[i].index + 1, evalResults[i].efficiency);
             }
         }
         
         // Garantir au moins 1 objectif
         if (selected == 0 && evalResults[0].feasible) {
             chooseObjectives[evalResults[0].index] = true;
-            printf("  Sélection forcée: Objectif %d (meilleur disponible)\n", 
-                   evalResults[0].index + 1);
         }
     }
     
-    // Résumé final
+    // Seul message de résumé
     int finalCount = 0;
-    printf("\nRÉSULTAT FINAL:\n");
     for (int i = 0; i < 3; i++) {
         if (chooseObjectives[i]) {
             finalCount++;
-            printf("  ✓ Objectif %d: %d->%d (%d points)\n", 
-                   i+1, objectives[i].from, objectives[i].to, objectives[i].score);
         }
     }
-    printf("Total: %d objectifs sélectionnés\n", finalCount);
-    
-    printf("============================================\n\n");
+    printf("Selected %d objectives\n", finalCount);
 }
 
 // Interface publique pour les stratégies
 void chooseObjectivesStrategy(GameState* state, Objective* objectives, bool* chooseObjectives) {
-    printf("Using advanced objective selection strategy\n");
     improvedObjectiveEvaluation(state, objectives, chooseObjectives);
 }
 
@@ -649,16 +545,12 @@ bool forceCompleteCriticalObjective(GameState* state, MoveData* moveData) {
         return false;
     }
     
-    printf("PRIORITÉ ABSOLUE: Compléter objectif %d (reste %d routes, %d wagons)\n", 
-           bestObjective+1, minRemainingRoutes, state->wagonsLeft);
-    
     // Trouver le chemin pour cet objectif
     int objFrom = state->objectives[bestObjective].from;
     int objTo = state->objectives[bestObjective].to;
     
     int path[MAX_CITIES];
     int pathLength = 0;
-    // CHANGEMENT: Utiliser findShortestPath pour forcer la complétion
     findShortestPath(state, objFrom, objTo, path, &pathLength);
     
     // Chercher la première route disponible sur ce chemin
@@ -679,16 +571,6 @@ bool forceCompleteCriticalObjective(GameState* state, MoveData* moveData) {
                 
                 extern int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLocomotives);
                 if (color != NONE && canClaimRoute(state, cityA, cityB, color, &nbLoco)) {
-                    // On peut prendre cette route!
-                    moveData->action = CLAIM_ROUTE;
-                    moveData->claimRoute.from = cityA;
-                    moveData->claimRoute.to = cityB;
-                    moveData->claimRoute.color = color;
-                    moveData->claimRoute.nbLocomotives = nbLoco;
-                    
-                    printf("OBJECTIF CRITIQUE: Prendre route %d->%d pour terminer objectif %d\n", 
-                           cityA, cityB, bestObjective+1);
-                    
                     // Vérification finale de sécurité pour la couleur
                     int routeIndex = findRouteIndex(state, cityA, cityB);
                     if (routeIndex >= 0) {
@@ -697,19 +579,19 @@ bool forceCompleteCriticalObjective(GameState* state, MoveData* moveData) {
                         
                         if (routeColor != LOCOMOTIVE) {  // Route non grise
                             if (color != routeColor && color != routeSecondColor && color != LOCOMOTIVE) {
-                                printf("ERREUR FATALE: Tentative de prendre route %d->%d avec couleur incorrecte %d (valides: %d", 
-                                    cityA, cityB, color, routeColor);
-                                
-                                if (routeSecondColor != NONE) {
-                                    printf(", %d", routeSecondColor);
-                                }
-                                printf(")\n");
-                                
-                                // Annuler cette action et retourner false
                                 return false;
                             }
                         }
                     }
+                    
+                    // On peut prendre cette route!
+                    moveData->action = CLAIM_ROUTE;
+                    moveData->claimRoute.from = cityA;
+                    moveData->claimRoute.to = cityB;
+                    moveData->claimRoute.color = color;
+                    moveData->claimRoute.nbLocomotives = nbLoco;
+                    
+                    printf("Critical objective route: %d->%d\n", cityA, cityB);
                     
                     return true;
                 }
@@ -726,7 +608,6 @@ bool haveEnoughCards(GameState* state, int from, int to, CardColor* bestColor, i
     int routeIndex = findRouteIndex(state, from, to);
     
     if (routeIndex == -1) {
-        printf("ERREUR: Route %d -> %d non trouvée dans haveEnoughCards\n", from, to);
         *bestColor = NONE;
         *nbLocomotives = 0;
         return false;
@@ -736,14 +617,10 @@ bool haveEnoughCards(GameState* state, int from, int to, CardColor* bestColor, i
     CardColor routeColor = state->routes[routeIndex].color;
     CardColor routeSecondColor = state->routes[routeIndex].secondColor;
     
-    printf("VÉRIFICATION ROUTE %d->%d: Longueur %d, Couleur %d, SecondColor %d\n", 
-           from, to, length, routeColor, routeSecondColor);
-    
     // Route de couleur spécifique
     if (routeColor != LOCOMOTIVE) {
         // Vérifier si on a assez de cartes de la couleur principale
         int colorCards = state->nbCardsByColor[routeColor];
-        printf("  Cartes %d disponibles: %d\n", routeColor, colorCards);
         
         if (colorCards >= length) {
             *bestColor = routeColor;
@@ -753,7 +630,6 @@ bool haveEnoughCards(GameState* state, int from, int to, CardColor* bestColor, i
         
         // Sinon, compléter avec des locomotives
         int locos = state->nbCardsByColor[LOCOMOTIVE];
-        printf("  Locomotives disponibles: %d\n", locos);
         
         if (colorCards + locos >= length) {
             *bestColor = routeColor;
@@ -764,7 +640,6 @@ bool haveEnoughCards(GameState* state, int from, int to, CardColor* bestColor, i
         // Si route avec couleur alternative
         if (routeSecondColor != NONE) {
             int secondColorCards = state->nbCardsByColor[routeSecondColor];
-            printf("  Cartes couleur alternative %d disponibles: %d\n", routeSecondColor, secondColorCards);
             
             if (secondColorCards >= length) {
                 *bestColor = routeSecondColor;
@@ -800,7 +675,6 @@ bool haveEnoughCards(GameState* state, int from, int to, CardColor* bestColor, i
         
         for (int c = 1; c < 9; c++) {
             int colorCards = state->nbCardsByColor[c];
-            printf("  Cartes %d disponibles: %d\n", c, colorCards);
             
             if (colorCards > bestColorCards) {
                 bestColorCards = colorCards;
@@ -816,7 +690,6 @@ bool haveEnoughCards(GameState* state, int from, int to, CardColor* bestColor, i
         
         // Essayer de compléter avec des locomotives
         int locos = state->nbCardsByColor[LOCOMOTIVE];
-        printf("  Locomotives disponibles: %d\n", locos);
         
         if (bestColorCards + locos >= length) {
             *bestColor = bestAvailableColor;
@@ -857,7 +730,6 @@ int countRemainingRoutesForObjective(GameState* state, int objectiveIndex) {
     
     int path[MAX_CITIES];
     int pathLength = 0;
-    // CHANGEMENT: Utiliser findShortestPath pour compter les routes restantes
     int distance = findShortestPath(state, objFrom, objTo, path, &pathLength);
     
     if (distance <= 0 || pathLength <= 0) {
@@ -887,4 +759,3 @@ int countRemainingRoutesForObjective(GameState* state, int objectiveIndex) {
     
     return totalSegments - segmentsOwned;
 }
-

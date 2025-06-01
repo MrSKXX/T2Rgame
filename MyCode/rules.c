@@ -2,24 +2,16 @@
 #include <stdlib.h>
 #include "rules.h"
 
-extern void debugPrint(int level, const char* format, ...);
-
 // Vérifie si nous avons assez de cartes pour prendre une route
 int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLocomotives) {
-    extern void debugPrint(int level, const char* format, ...);
-    
     if (!state || !nbLocomotives) {
         printf("ERROR: Invalid parameters in canClaimRoute\n");
         return 0;
     }
     
-    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                              "Orange", "Black", "Red", "Green", "Locomotive"};
-    
     *nbLocomotives = 0;
     
     if (state->wagonsLeft <= 0) {
-        debugLog(2, "DEBUG: canClaimRoute - Not enough wagons left");
         return 0;
     }
     
@@ -33,20 +25,15 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
     }
     
     if (routeIndex == -1) {
-        debugPrint(2, "DEBUG: canClaimRoute - Route from %d to %d not found", from, to);
         return 0;
     }
     
     if (state->routes[routeIndex].owner != 0) {
-        debugPrint(2, "DEBUG: canClaimRoute - Route from %d to %d already owned by %d", 
-              from, to, state->routes[routeIndex].owner);
         return 0;
     }
     
     int length = state->routes[routeIndex].length;
     if (state->wagonsLeft < length) {
-        debugPrint(2, "DEBUG: canClaimRoute - Not enough wagons (%d needed, %d left)", 
-              length, state->wagonsLeft);
         return 0;
     }
     
@@ -55,17 +42,12 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
 
     // Pour les routes grises (représentées par LOCOMOTIVE)
     if (routeColor == LOCOMOTIVE) {
-        debugPrint(2, "DEBUG: canClaimRoute - This is a gray route, any color is valid");
-        
         if (color == LOCOMOTIVE) {
             int locomotives = state->nbCardsByColor[LOCOMOTIVE];
             if (locomotives >= length) {
                 *nbLocomotives = length;
-                debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d locomotives", *nbLocomotives);
                 return 1;
             } else {
-                debugPrint(2, "DEBUG: canClaimRoute - Not enough locomotives (%d needed, %d available)", 
-                      length, locomotives);
                 return 0;
             }
         }
@@ -80,12 +62,10 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
             *nbLocomotives = length - colorCards;
             return 1;
         } else {
-            debugPrint(2, "DEBUG: canClaimRoute - Not enough cards (%d %s + %d locomotives available, %d needed)", 
-                  colorCards, cardNames[color], locomotives, length);
             return 0;
         }
     }
-    // Pour les routes non grises, on doit ABSOLUMENT respecter la couleur
+    // Pour les routes non grises, on doit respecter la couleur
     else {
         bool validColor = false;
         
@@ -100,49 +80,28 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
         }
         
         if (!validColor) {
-            debugPrint(1, "ERROR: Invalid color for route %d-%d: expected %s", 
-                      from, to, cardNames[routeColor]);
-            
-            if (routeSecondColor != NONE) {
-                debugPrint(1, " or %s", cardNames[routeSecondColor]);
-            }
-            
-            debugPrint(1, ", got %s", cardNames[color]);
-            
             return 0;
         }
         
         int colorCards = state->nbCardsByColor[color];
         int locomotives = state->nbCardsByColor[LOCOMOTIVE];
         
-        debugPrint(2, "DEBUG: canClaimRoute - We have %d %s cards and %d locomotives, need %d cards total",
-              colorCards, cardNames[color], locomotives, length);
-        
         if (color == LOCOMOTIVE) {
             if (locomotives >= length) {
                 *nbLocomotives = length;
-                debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d locomotives", *nbLocomotives);
                 return 1;
             } else {
-                debugPrint(2, "DEBUG: canClaimRoute - Not enough locomotives (%d needed, %d available)", 
-                      length, locomotives);
                 return 0;
             }
         }
         
         if (colorCards >= length) {
             *nbLocomotives = 0;
-            debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d %s cards, no locomotives needed",
-                  length, cardNames[color]);
             return 1;
         } else if (colorCards + locomotives >= length) {
             *nbLocomotives = length - colorCards;
-            debugPrint(2, "DEBUG: canClaimRoute - Can claim with %d %s cards and %d locomotives",
-                  colorCards, cardNames[color], *nbLocomotives);
             return 1;
         } else {
-            debugPrint(2, "DEBUG: canClaimRoute - Not enough cards to claim route (%d %s + %d locomotives available, %d needed)",
-                  colorCards, cardNames[color], locomotives, length);
             return 0;
         }
     }
@@ -150,7 +109,6 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
 
 // Recherche les routes que nous pouvons prendre avec nos cartes actuelles
 int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibleColors, int* possibleLocomotives) {
-    extern void debugPrint(int level, const char* format, ...);
     int count = 0;
     
     if (!state || !possibleRoutes || !possibleColors || !possibleLocomotives) {
@@ -166,41 +124,22 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
     }
     
     if (state->nbCards != totalCards) {
-        debugPrint(1, "WARNING: Card count mismatch! nbCards = %d, sum of cards by color = %d", 
-              state->nbCards, totalCards);
         state->nbCards = totalCards;
     }
     
-    debugPrint(2, "DEBUG: findPossibleRoutes - Total cards in hand: %d", state->nbCards);
-    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                               "Orange", "Black", "Red", "Green", "Locomotive"};
-    
-    debugPrint(2, "DEBUG: findPossibleRoutes - Cards by color:");
-    for (int c = 1; c < 10; c++) {
-        if (state->nbCardsByColor[c] > 0) {
-            debugPrint(2, "  - %s: %d", cardNames[c], state->nbCardsByColor[c]);
-        }
-    }
-    
-    debugPrint(2, "DEBUG: findPossibleRoutes - Wagons left: %d", state->wagonsLeft);
-    
     int nbTracksToCheck = state->nbTracks;
     if (nbTracksToCheck <= 0 || nbTracksToCheck > 150) {
-        printf("WARNING: Invalid number of tracks: %d, limiting to 150\n", nbTracksToCheck);
         nbTracksToCheck = (nbTracksToCheck <= 0) ? 0 : 150;
     }
     
-    debugPrint(3, "DEBUG: Checking %d tracks for possible routes", nbTracksToCheck);
-    
     for (int i = 0; i < nbTracksToCheck && count < MAX_ROUTES_TO_PROCESS; i++) {
         if (i < 0 || i >= state->nbTracks) {
-            printf("WARNING: Invalid track index: %d, skipping\n", i);
             continue;
         }
         
         if (state->routes[i].from < 0 || state->routes[i].from >= state->nbCities || 
             state->routes[i].to < 0 || state->routes[i].to >= state->nbCities) {
-            printf("ERREUR CRITIQUE: Route %d contient des villes invalides: %d -> %d\n", 
+            printf("ERROR: Route %d has invalid cities: %d -> %d\n", 
                    i, state->routes[i].from, state->routes[i].to);
             continue;
         }
@@ -210,20 +149,12 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
             int to = state->routes[i].to;
             
             if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-                printf("WARNING: Invalid cities in route %d: from %d to %d, skipping\n", i, from, to);
                 continue;
             }
             
             CardColor routeColor = state->routes[i].color;
             CardColor routeSecondColor = state->routes[i].secondColor;
             int length = state->routes[i].length;
-            
-            if (count < 10) {
-                debugPrint(3, "DEBUG: Examining route %d: from %d to %d, length %d, color %s, secondColor %s", 
-                      i, from, to, length, 
-                      (routeColor < 10) ? cardNames[routeColor] : "Unknown",
-                      (routeSecondColor < 10) ? cardNames[routeSecondColor] : "Unknown");
-            }
             
             if (state->wagonsLeft < length) {
                 continue;
@@ -291,17 +222,10 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
                             possibleRoutes[count] = i;
                             
                             if (color < 1 || color > 9) {
-                                printf("ERREUR DANS findPossibleRoutes: Couleur invalide %d détectée pour route %d->%d, correction à BLACK (6)\n", 
-                                    color, from, to);
-                                color = 6;
+                                color = 6; // BLACK par défaut
                             }
                             possibleColors[count] = color;
                             possibleLocomotives[count] = nbLocomotives;
-                            
-                            if (count < 20) {
-                                printf("Possible route %d: from %d to %d, color %s, length %d, with %d locomotives\n", 
-                                      count, from, to, cardNames[color], length, nbLocomotives);
-                            }
                             
                             count++;
                         }
@@ -336,7 +260,7 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
         possibleRoutes[count] = -1;
     }
     
-    printf("Found %d possible routes to claim\n", count);
+    printf("Found %d possible routes\n", count);
     
     return count;
 }
@@ -390,11 +314,7 @@ int calculateScore(GameState* state) {
             if (length >= 0 && length <= 6) {
                 int pointsByLength[] = {0, 1, 2, 4, 7, 10, 15};
                 score += pointsByLength[length];
-            } else {
-                printf("Warning: Invalid route length: %d\n", length);
             }
-        } else {
-            printf("Warning: Invalid route index: %d\n", routeIndex);
         }
     }
     
@@ -405,18 +325,11 @@ int calculateScore(GameState* state) {
         if (isObjectiveCompleted(state, state->objectives[i])) {
             score += state->objectives[i].score;
             objectivesCompleted++;
-            printf("Objective %d completed: +%d points\n", i+1, state->objectives[i].score);
         } else {
             score -= state->objectives[i].score;
             objectivesFailed++;
-            printf("Objective %d failed: -%d points\n", i+1, state->objectives[i].score);
         }
     }
-    
-    printf("Score summary: %d points from routes, %d objectives completed, %d objectives failed\n", 
-           score - objectivesCompleted + objectivesFailed,
-           objectivesCompleted, 
-           objectivesFailed);
     
     return score;
 }
@@ -434,15 +347,9 @@ int completeObjectivesCount(GameState* state) {
     return count;
 }
 
-// AJOUTEZ CETTE FONCTION À LA FIN DE rules.c
-
-/**
- * Validation simple d'un mouvement avant exécution
- * Retourne 1 si valide, 0 sinon
- */
+// Validation simple d'un mouvement avant exécution
 int isValidMove(GameState* state, MoveData* move) {
     if (!state || !move) {
-        printf("VALIDATION: Paramètres NULL\n");
         return 0;
     }
     
@@ -454,32 +361,32 @@ int isValidMove(GameState* state, MoveData* move) {
             
             // Vérifier villes
             if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-                printf("VALIDATION ÉCHEC: Villes invalides %d->%d\n", from, to);
+                printf("VALIDATION FAILED: Invalid cities %d->%d\n", from, to);
                 return 0;
             }
             
             // Vérifier couleur
             if (color < PURPLE || color > LOCOMOTIVE) {
-                printf("VALIDATION ÉCHEC: Couleur invalide %d\n", color);
+                printf("VALIDATION FAILED: Invalid color %d\n", color);
                 return 0;
             }
             
             // Vérifier que la route existe et est libre
             int routeIndex = findRouteIndex(state, from, to);
             if (routeIndex < 0) {
-                printf("VALIDATION ÉCHEC: Route %d->%d n'existe pas\n", from, to);
+                printf("VALIDATION FAILED: Route %d->%d does not exist\n", from, to);
                 return 0;
             }
             
             if (state->routes[routeIndex].owner != 0) {
-                printf("VALIDATION ÉCHEC: Route %d->%d déjà prise\n", from, to);
+                printf("VALIDATION FAILED: Route %d->%d already taken\n", from, to);
                 return 0;
             }
             
             // Vérifier cartes suffisantes
             int nbLoco;
             if (!canClaimRoute(state, from, to, color, &nbLoco)) {
-                printf("VALIDATION ÉCHEC: Pas assez de cartes pour %d->%d\n", from, to);
+                printf("VALIDATION FAILED: Not enough cards for %d->%d\n", from, to);
                 return 0;
             }
             
@@ -489,7 +396,7 @@ int isValidMove(GameState* state, MoveData* move) {
         case DRAW_CARD: {
             CardColor card = move->drawCard;
             if (card < PURPLE || card > LOCOMOTIVE) {
-                printf("VALIDATION ÉCHEC: Carte à piocher invalide %d\n", card);
+                printf("VALIDATION FAILED: Invalid card to draw %d\n", card);
                 return 0;
             }
             return 1;
@@ -500,7 +407,7 @@ int isValidMove(GameState* state, MoveData* move) {
             return 1; // Toujours valides
             
         default:
-            printf("VALIDATION ÉCHEC: Action inconnue %d\n", move->action);
+            printf("VALIDATION FAILED: Unknown action %d\n", move->action);
             return 0;
     }
 }

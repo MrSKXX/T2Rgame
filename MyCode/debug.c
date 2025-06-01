@@ -14,12 +14,16 @@ void debugLog(int level, const char* format, ...) {
 }
 
 void debugObjectives(GameState* state) {
+    if (DEBUG_LEVEL < 2) {
+        return; // Sortie silencieuse si pas en mode debug verbeux
+    }
+    
     if (!state) {
         printf("ERROR: NULL state in debugObjectives\n");
         return;
     }
     
-    printf("\n=== ANALYSE DÉTAILLÉE DES OBJECTIFS ===\n");
+    printf("\n=== OBJECTIVES ANALYSIS ===\n");
     
     for (int i = 0; i < state->nbObjectives; i++) {
         if (i < 0 || i >= MAX_OBJECTIVES) continue;
@@ -29,14 +33,14 @@ void debugObjectives(GameState* state) {
         int score = state->objectives[i].score;
         
         if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-            printf("Objectif %d: INVALIDE - From %d to %d, score %d\n", i+1, from, to, score);
+            printf("Objective %d: INVALID - From %d to %d, score %d\n", i+1, from, to, score);
             continue;
         }
         
         bool completed = isObjectiveCompleted(state, state->objectives[i]);
         
-        printf("Objectif %d: From %d to %d, score %d %s\n", 
-               i+1, from, to, score, completed ? "[COMPLÉTÉ]" : "");
+        printf("Objective %d: From %d to %d, score %d %s\n", 
+               i+1, from, to, score, completed ? "[COMPLETED]" : "");
         
         if (completed) continue;
         
@@ -45,7 +49,7 @@ void debugObjectives(GameState* state) {
         int distance = findShortestPath(state, from, to, path, &pathLength);
         
         if (distance > 0 && pathLength > 0) {
-            printf("  Chemin trouvé, longueur %d: ", pathLength);
+            printf("  Path found, length %d: ", pathLength);
             for (int j = 0; j < pathLength && j < MAX_CITIES; j++) {
                 printf("%d ", path[j]);
             }
@@ -55,7 +59,7 @@ void debugObjectives(GameState* state) {
             int routesOwned = 0;
             int routesBlocked = 0;
             
-            printf("  Analyse des routes:\n");
+            printf("  Route analysis:\n");
             for (int j = 0; j < pathLength - 1; j++) {
                 int cityA = path[j];
                 int cityB = path[j+1];
@@ -72,14 +76,14 @@ void debugObjectives(GameState* state) {
                         printf("    %d->%d: ", cityA, cityB);
                         
                         if (state->routes[k].owner == 0) {
-                            printf("Disponible (longueur %d, couleur %d)\n", 
+                            printf("Available (length %d, color %d)\n", 
                                   state->routes[k].length, state->routes[k].color);
                             routesNeeded++;
                         } else if (state->routes[k].owner == 1) {
-                            printf("Déjà prise par nous\n");
+                            printf("Already taken by us\n");
                             routesOwned++;
                         } else if (state->routes[k].owner == 2) {
-                            printf("BLOQUÉE par l'adversaire!\n");
+                            printf("BLOCKED by opponent!\n");
                             routesBlocked++;
                         }
                         
@@ -88,36 +92,40 @@ void debugObjectives(GameState* state) {
                 }
                 
                 if (!routeFound) {
-                    printf("    %d->%d: Aucune route trouvée!\n", cityA, cityB);
+                    printf("    %d->%d: No route found!\n", cityA, cityB);
                 }
             }
             
-            printf("  Résumé: %d routes nécessaires, %d déjà prises, %d bloquées\n", 
+            printf("  Summary: %d routes needed, %d already taken, %d blocked\n", 
                   routesNeeded, routesOwned, routesBlocked);
             
             if (routesBlocked > 0) {
-                printf("  ATTENTION: Objectif partiellement bloqué par l'adversaire!\n");
+                printf("  WARNING: Objective partially blocked by opponent!\n");
             } else if (routesNeeded == 0) {
-                printf("  Objectif en cours de complétion, toutes les routes acquises.\n");
+                printf("  Objective in progress, all routes acquired.\n");
             } else {
-                printf("  Action nécessaire: Prendre %d routes pour compléter cet objectif.\n", 
+                printf("  Action needed: Take %d routes to complete this objective.\n", 
                       routesNeeded);
             }
         } else {
-            printf("  ERREUR: Aucun chemin trouvé pour cet objectif!\n");
+            printf("  ERROR: No path found for this objective!\n");
         }
     }
     
-    printf("=========================================\n\n");
+    printf("=============================\n\n");
 }
 
 void debugRoute(GameState* state, int from, int to, CardColor color, int nbLocomotives) {
+    if (DEBUG_LEVEL < 2) {
+        return; // Sortie silencieuse si pas en mode debug verbeux
+    }
+    
     if (!state) {
         printf("ERROR: NULL state in debugRoute\n");
         return;
     }
     
-    printf("\n=== ANALYSE DÉTAILLÉE DE LA ROUTE %d->%d ===\n", from, to);
+    printf("\n=== ROUTE ANALYSIS %d->%d ===\n", from, to);
     
     int routeIndex = -1;
     for (int i = 0; i < state->nbTracks; i++) {
@@ -129,93 +137,94 @@ void debugRoute(GameState* state, int from, int to, CardColor color, int nbLocom
     }
     
     if (routeIndex == -1) {
-        printf("ERREUR: Route non trouvée!\n");
+        printf("ERROR: Route not found!\n");
         return;
     }
     
     Route* route = &state->routes[routeIndex];
-    printf("Route #%d: De %d à %d\n", routeIndex, route->from, route->to);
-    printf("Longueur: %d\n", route->length);
-    printf("Couleur: %d\n", route->color);
+    printf("Route #%d: From %d to %d\n", routeIndex, route->from, route->to);
+    printf("Length: %d\n", route->length);
+    printf("Color: %d\n", route->color);
     
     if (route->secondColor != NONE) {
-        printf("Seconde couleur: %d\n", route->secondColor);
+        printf("Second color: %d\n", route->secondColor);
     }
     
-    printf("Propriétaire: %d (0=Personne, 1=Nous, 2=Adversaire)\n", route->owner);
+    printf("Owner: %d (0=None, 1=Us, 2=Opponent)\n", route->owner);
     
-    printf("\nCouleur choisie pour prendre la route: %d\n", color);
-    printf("Nombre de locomotives: %d\n", nbLocomotives);
+    printf("\nChosen color for taking route: %d\n", color);
+    printf("Number of locomotives: %d\n", nbLocomotives);
     
-    printf("\nVérification de validité:\n");
+    printf("\nValidity check:\n");
     
     bool colorValid = false;
     if (route->color == LOCOMOTIVE) {
         colorValid = true;
-        printf("OK: Route grise, n'importe quelle couleur est valide\n");
+        printf("OK: Gray route, any color is valid\n");
     } else if (color == route->color || 
               (route->secondColor != NONE && color == route->secondColor) ||
               color == LOCOMOTIVE) {
         colorValid = true;
-        printf("OK: Couleur valide pour cette route\n");
+        printf("OK: Valid color for this route\n");
     } else {
-        printf("ERREUR: Couleur invalide! La route accepte %d", route->color);
+        printf("ERROR: Invalid color! Route accepts %d", route->color);
         
         if (route->secondColor != NONE) {
-            printf(" ou %d", route->secondColor);
+            printf(" or %d", route->secondColor);
         }
-        printf(", mais %d a été choisi\n", color);
+        printf(", but %d was chosen\n", color);
     }
     
     int colorCards = state->nbCardsByColor[color];
     int locomotives = state->nbCardsByColor[LOCOMOTIVE];
-    printf("\nCartes disponibles:\n");
-    printf("- Couleur %d: %d\n", color, colorCards);
+    printf("\nAvailable cards:\n");
+    printf("- Color %d: %d\n", color, colorCards);
     printf("- Locomotives: %d\n", locomotives);
     
     if (color == LOCOMOTIVE) {
         if (locomotives >= route->length) {
-            printf("OK: Assez de locomotives pour prendre la route\n");
+            printf("OK: Enough locomotives to take the route\n");
         } else {
-            printf("ERREUR: Pas assez de locomotives (%d nécessaires, %d disponibles)\n", 
+            printf("ERROR: Not enough locomotives (%d needed, %d available)\n", 
                   route->length, locomotives);
         }
     } else {
         int colorCardsNeeded = route->length - nbLocomotives;
         if (colorCards >= colorCardsNeeded && locomotives >= nbLocomotives) {
-            printf("OK: Assez de cartes (%d de couleur %d + %d locomotives)\n", 
+            printf("OK: Enough cards (%d color %d + %d locomotives)\n", 
                   colorCardsNeeded, color, nbLocomotives);
         } else {
             if (colorCards < colorCardsNeeded) {
-                printf("ERREUR: Pas assez de cartes de couleur %d (%d nécessaires, %d disponibles)\n", 
+                printf("ERROR: Not enough color %d cards (%d needed, %d available)\n", 
                       color, colorCardsNeeded, colorCards);
             }
             if (locomotives < nbLocomotives) {
-                printf("ERREUR: Pas assez de locomotives (%d nécessaires, %d disponibles)\n", 
+                printf("ERROR: Not enough locomotives (%d needed, %d available)\n", 
                       nbLocomotives, locomotives);
             }
         }
     }
     
+    // Vérifications spéciales pour certaines routes
     if ((from == 17 && to == 22) || (from == 22 && to == 17)) {
-        printf("\nATTENTION: Route spéciale Kansas City (17) - Saint Louis (22)\n");
-        printf("Pour cette route, seules les couleurs BLUE (3), PURPLE (1) ou LOCOMOTIVE (9) sont autorisées\n");
+        printf("\nWARNING: Special route Kansas City (17) - Saint Louis (22)\n");
+        printf("For this route, only BLUE (3), PURPLE (1) or LOCOMOTIVE (9) colors are allowed\n");
         if (color != 3 && color != 1 && color != 9) {
-            printf("ERREUR: Couleur %d non autorisée pour cette route spéciale!\n", color);
+            printf("ERROR: Color %d not allowed for this special route!\n", color);
         } else {
-            printf("OK: Couleur autorisée pour cette route spéciale\n");
+            printf("OK: Color allowed for this special route\n");
         }
     }
     
     if ((from == 31 && to == 32) || (from == 32 && to == 31)) {
-        printf("\nATTENTION: Route spéciale New York (31) - Washington (32)\n");
-        printf("Pour cette route, seules les couleurs BLACK (6), ORANGE (5) ou LOCOMOTIVE (9) sont autorisées\n");
+        printf("\nWARNING: Special route New York (31) - Washington (32)\n");
+        printf("For this route, only BLACK (6), ORANGE (5) or LOCOMOTIVE (9) colors are allowed\n");
         if (color != 6 && color != 5 && color != 9) {
-            printf("ERREUR: Couleur %d non autorisée pour cette route spéciale!\n", color);
+            printf("ERROR: Color %d not allowed for this special route!\n", color);
         } else {
-            printf("OK: Couleur autorisée pour cette route spéciale\n");
+            printf("OK: Color allowed for this special route\n");
         }
     }
     
-    printf("=========================================\n\n");
+    printf("===============================\n\n");
 }

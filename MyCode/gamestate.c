@@ -4,6 +4,7 @@
 #include "gamestate.h"
 #include "strategy/strategy.h"
 #include "rules.h"
+
 void initGameState(GameState* state, GameData* gameData) {
     memset(state, 0, sizeof(GameState));
     state->nbCities = gameData->nbCities;
@@ -46,10 +47,10 @@ void initGameState(GameState* state, GameData* gameData) {
     
     memset(state->visibleCards, 0, sizeof(state->visibleCards));
     
-    printf("GameState initialized with %d cities and %d tracks\n", state->nbCities, state->nbTracks);
+    printf("Game initialized: %d cities, %d tracks\n", state->nbCities, state->nbTracks);
 }
 
-// Met à jour l'état du jeu après avoir reçu une carte
+// Met à jour l'état du jeu après avoir reçu une carte - VERSION NETTOYÉE
 void addCardToHand(GameState* state, CardColor card) {
     if (!state) {
         printf("ERROR: Null state in addCardToHand\n");
@@ -57,42 +58,28 @@ void addCardToHand(GameState* state, CardColor card) {
     }
     
     if (state->nbCards >= 50) {
-        printf("WARNING: Cannot add more cards, hand is full (50 max)!\n");
+        printf("WARNING: Hand full, cannot add card\n");
         return;
     }
     
     state->cards[state->nbCards++] = card;
     state->nbCardsByColor[card]++;
     
-    printf("Added card to hand: ");
-    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                              "Orange", "Black", "Red", "Green", "Locomotive"};
-    printf("%s\n", cardNames[card]);
-    
-    printf("Current hand: %d cards total\n", state->nbCards);
+
 }
 
-// Met à jour l'état du jeu après avoir joué des cartes pour prendre une route
+// Met à jour l'état du jeu après avoir joué des cartes pour prendre une route 
 void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLocomotives) {
-    extern void debugPrint(int level, const char* format, ...);
-    
     if (!state || length <= 0) {
         printf("ERROR: Invalid parameters in removeCardsForRoute\n");
         return;
     }
     
     if (state->nbCardsByColor[color] + state->nbCardsByColor[LOCOMOTIVE] < length) {
-        printf("ERROR: Not enough cards to remove in removeCardsForRoute\n");
+        printf("ERROR: Not enough cards to remove\n");
         return;
     }
-    
-    const char* cardNames[] = {"None", "Purple", "White", "Blue", "Yellow", 
-                              "Orange", "Black", "Red", "Green", "Locomotive"};
-    
-    printf("Removing cards for route: %d %s cards and %d locomotives\n", 
-           length - nbLocomotives, 
-           (color < 10 && color >= 0) ? cardNames[color] : "Unknown",
-           nbLocomotives);
+
     
     // Mettre à jour directement les compteurs
     state->nbCardsByColor[color] -= (length - nbLocomotives);
@@ -115,18 +102,15 @@ void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLo
     
     state->wagonsLeft -= length;
     
-    printf("Removed %d cards (%d %s and %d locomotives) for claiming route\n", 
-           length, length - nbLocomotives, 
-           (color < 10 && color >= 0) ? cardNames[color] : "Unknown",
-           nbLocomotives);
 }
 
 // Met à jour l'état du jeu après avoir pris une route
 void addClaimedRoute(GameState* state, int from, int to) {
     if (!state || from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-        printf("ERREUR CRITIQUE: Paramètres invalides dans addClaimedRoute (%d -> %d)\n", from, to);
+        printf("ERROR: Invalid parameters in addClaimedRoute (%d -> %d)\n", from, to);
         return;
     }
+    
     // Trouve l'index de la route
     int routeIndex = -1;
     for (int i = 0; i < state->nbTracks; i++) {
@@ -139,17 +123,16 @@ void addClaimedRoute(GameState* state, int from, int to) {
     
     if (routeIndex != -1) {
         if (state->routes[routeIndex].owner != 0) {
-            printf("ERREUR: Tentative de prendre une route déjà possédée (owner: %d)\n", 
-                   state->routes[routeIndex].owner);
+            printf("ERROR: Route already owned (owner: %d)\n", state->routes[routeIndex].owner);
             return;
         }
         
         state->routes[routeIndex].owner = 1;
         if (state->nbClaimedRoutes < MAX_ROUTES) {
             state->claimedRoutes[state->nbClaimedRoutes++] = routeIndex;
-            printf("Added route from %d to %d to our claimed routes\n", from, to);
+
         } else {
-            printf("ERREUR: Impossible d'ajouter plus de routes (maximum atteint)\n");
+            printf("ERROR: Cannot add more routes (maximum reached)\n");
         }
         
         updateCityConnectivity(state);
@@ -184,15 +167,14 @@ void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
                     state->routes[routeIndex].owner = 2;
                     state->opponentWagonsLeft -= state->routes[routeIndex].length;
                     
-                    printf("ATTENTION: Adversaire a pris la route %d à %d (route #%d, longueur %d)\n", 
-                           from, to, routeIndex, state->routes[routeIndex].length);
+                    printf("Opponent took route %d->%d\n", from, to);
                     
                     if (state->opponentWagonsLeft <= 2) {
                         state->lastTurn = 1;
                         printf("LAST TURN: Opponent has <= 2 wagons left\n");
                     }
                 } else {
-                    printf("WARNING: Could not find route claimed by opponent from %d to %d\n", from, to);
+                    printf("WARNING: Could not find opponent route %d->%d\n", from, to);
                 }
             }
             break;
@@ -211,12 +193,12 @@ void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
                     }
                 }
                 state->opponentObjectiveCount += keptObjectives;
-                printf("Opponent kept %d objectives\n", keptObjectives);
+
             }
             break;
 
         case DRAW_OBJECTIVES:
-            printf("Opponent is drawing objective cards\n");
+
             break;
             
         default:
@@ -233,13 +215,14 @@ void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
 void updateCityConnectivity(GameState* state) {
     extern void invalidatePathCache(void);
     invalidatePathCache();
+    
     if (!state) {
-        printf("Error: Game state is NULL in updateCityConnectivity\n");
+        printf("ERROR: NULL state in updateCityConnectivity\n");
         return;
     }
     
     if (state->nbCities <= 0 || state->nbCities > MAX_CITIES) {
-        printf("Warning: Invalid number of cities: %d\n", state->nbCities);
+        printf("WARNING: Invalid number of cities: %d\n", state->nbCities);
         return;
     }
     
@@ -255,7 +238,7 @@ void updateCityConnectivity(GameState* state) {
         int routeIndex = state->claimedRoutes[i];
         
         if (routeIndex < 0 || routeIndex >= state->nbTracks) {
-            printf("Warning: Invalid route index %d in updateCityConnectivity\n", routeIndex);
+            printf("WARNING: Invalid route index %d\n", routeIndex);
             continue;
         }
         
@@ -263,7 +246,7 @@ void updateCityConnectivity(GameState* state) {
         int to = state->routes[routeIndex].to;
         
         if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-            printf("Warning: Invalid city indices (%d, %d) in route %d\n", from, to, routeIndex);
+            printf("WARNING: Invalid city indices (%d, %d) in route %d\n", from, to, routeIndex);
             continue;
         }
         
@@ -287,13 +270,14 @@ void updateCityConnectivity(GameState* state) {
 void addObjectives(GameState* state, Objective* objectives, int count) {
     for (int i = 0; i < count && state->nbObjectives < MAX_OBJECTIVES; i++) {
         state->objectives[state->nbObjectives++] = objectives[i];
-        printf("Added objective: From %d to %d, score %d\n", 
+        printf("Added objective: %d->%d (%d pts)\n", 
                objectives[i].from, objectives[i].to, objectives[i].score);
     }
 }
 
-// Affiche l'état du jeu actuel
+// Affiche l'état du jeu actuel 
 void printGameState(GameState* state) {
+    #ifdef DEBUG_VERBOSE
     if (!state) {
         printf("ERROR: Cannot print NULL game state\n");
         return;
@@ -355,10 +339,14 @@ void printGameState(GameState* state) {
         }
     }
     printf("------------------\n\n");
+    #endif
+    
+ 
 }
 
-// Affiche une représentation visuelle de la matrice de connectivité
+// Affiche une représentation visuelle de la matrice de connectivité 
 void printConnectivityMatrix(GameState* state) {
+    #ifdef DEBUG_VERBOSE
     if (!state) {
         printf("ERROR: NULL state in printConnectivityMatrix\n");
         return;
@@ -425,6 +413,9 @@ void printConnectivityMatrix(GameState* state) {
     }
     
     printf("=========================\n\n");
+    #endif
+    
+
 }
 
 void analyzeExistingNetwork(GameState* state, int* cityConnectivity) {
@@ -447,12 +438,7 @@ void analyzeExistingNetwork(GameState* state, int* cityConnectivity) {
         }
     }
     
-    printf("Analyse du réseau existant:\n");
-    for (int i = 0; i < state->nbCities; i++) {
-        if (cityConnectivity[i] > 0) {
-            printf("  Ville %d: %d connexions\n", i, cityConnectivity[i]);
-        }
-    }
+ 
 }
 
 void findMissingConnections(GameState* state, int* cityConnectivity, MissingConnection* missingConnections, int* count) {
@@ -499,11 +485,5 @@ void findMissingConnections(GameState* state, int* cityConnectivity, MissingConn
         }
     }
     
-    printf("Connexions manquantes identifiées:\n");
-    for (int i = 0; i < *count && i < 5; i++) {
-        printf("  Ville %d: %d connexions nécessaires, priorité %d\n", 
-               missingConnections[i].city, 
-               missingConnections[i].connectionsNeeded, 
-               missingConnections[i].priority);
-    }
+
 }
