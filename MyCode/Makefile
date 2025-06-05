@@ -2,14 +2,13 @@ CC = gcc
 CFLAGS = -Wall -Wextra -g
 
 # Fichiers sources principaux
-MAIN_SRCS = main.c gamestate.c player.c rules.c debug.c strategy_simple.c
-
+MAIN_SRCS = main.c gamestate.c player.c rules.c strategy_simple.c
 
 # Fichiers API
 API_SRCS = ../tickettorideapi/ticketToRide.c ../tickettorideapi/clientAPI.c
 
 # Tous les fichiers sources
-SRCS = $(MAIN_SRCS) $(STRATEGY_SRCS) $(API_SRCS)
+SRCS = $(MAIN_SRCS) $(API_SRCS)
 
 # Fichiers objets
 OBJS = $(SRCS:.c=.o)
@@ -31,7 +30,6 @@ $(EXEC): $(OBJS)
 # Nettoyage
 clean:
 	rm -f $(OBJS) $(EXEC)
-	rm -f strategy/*.o
 
 # Règle pour forcer la recompilation complète
 rebuild: clean all

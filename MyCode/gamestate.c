@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "gamestate.h"
-#include "strategy/strategy.h"
 #include "rules.h"
 
 void initGameState(GameState* state, GameData* gameData) {
@@ -194,13 +193,9 @@ void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
             printf("WARNING: Unknown action %d in updateAfterOpponentMove\n", moveData->action);
             break;
     }
-    
 }
 
 void updateCityConnectivity(GameState* state) {
-    // Supprimé : extern void invalidatePathCache(void);
-    // Supprimé : invalidatePathCache();
-    
     if (!state) {
         printf("ERROR: NULL state in updateCityConnectivity\n");
         return;
@@ -280,47 +275,3 @@ void analyzeExistingNetwork(GameState* state, int* cityConnectivity) {
     }
 }
 
-void findMissingConnections(GameState* state, int* cityConnectivity, MissingConnection* missingConnections, int* count) {
-    *count = 0;
-    
-    for (int i = 0; i < state->nbObjectives; i++) {
-        if (!isObjectiveCompleted(state, state->objectives[i])) {
-            int objFrom = state->objectives[i].from;
-            int objTo = state->objectives[i].to;
-            int objScore = state->objectives[i].score;
-            
-            for (int city = 0; city < state->nbCities && city < MAX_CITIES; city++) {
-                if (cityConnectivity[city] >= 2) {
-                    if (state->cityConnected[city][objFrom] || state->cityConnected[city][objTo]) {
-                        int targetCity = state->cityConnected[city][objFrom] ? objTo : objFrom;
-                        
-                        int path[MAX_CITIES];
-                        int pathLength = 0;
-                        if (!state->cityConnected[city][targetCity] && 
-                            findShortestPath(state, city, targetCity, path, &pathLength) > 0) {
-                            
-                            if (*count < MAX_CITIES) {
-                                missingConnections[*count].city = city;
-                                missingConnections[*count].connectionsNeeded = pathLength - 1;
-                                missingConnections[*count].priority = 
-                                    (objScore * 100) / missingConnections[*count].connectionsNeeded;
-                                (*count)++;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Trier par priorité
-    for (int i = 0; i < *count - 1; i++) {
-        for (int j = 0; j < *count - i - 1; j++) {
-            if (missingConnections[j].priority < missingConnections[j+1].priority) {
-                MissingConnection temp = missingConnections[j];
-                missingConnections[j] = missingConnections[j+1];
-                missingConnections[j+1] = temp;
-            }
-        }
-    }
-}

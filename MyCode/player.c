@@ -6,8 +6,6 @@
 #include "strategy_simple.h"
 #include "rules.h"
 
-extern void checkObjectivesPaths(GameState* state);
-
 void cleanupMoveResult(MoveResult *moveResult) {
     if (moveResult->opponentMessage) free(moveResult->opponentMessage);
     if (moveResult->message) free(moveResult->message);
@@ -75,7 +73,7 @@ ResultCode playFirstTurn(GameState* state) {
         return PARAM_ERROR;
     }
     
-    bool chooseObjectives[3] = {true, true, true};
+    unsigned char chooseObjectives[3] = {1, 1, 1};
     
     chooseObjectivesStrategy(state, myMoveResult.objectives, chooseObjectives);
     
@@ -89,7 +87,7 @@ ResultCode playFirstTurn(GameState* state) {
     
     if (!atLeastOneChosen) {
         printf("WARNING: No objectives chosen, selecting the first one by default\n");
-        chooseObjectives[0] = true;
+        chooseObjectives[0] = 1;
     }
     
     MoveData chooseMove;
@@ -354,41 +352,42 @@ ResultCode playTurn(GameState* state) {
             break;
             
         case DRAW_OBJECTIVES:
-            bool chooseObjectives[3] = {true, true, true};
-            chooseObjectivesStrategy(state, myMoveResult.objectives, chooseObjectives);
-            
-            MoveData chooseMove;
-            MoveResult chooseMoveResult = {0};
-            
-            chooseMove.action = CHOOSE_OBJECTIVES;
-            chooseMove.chooseObjectives[0] = chooseObjectives[0];
-            chooseMove.chooseObjectives[1] = chooseObjectives[1];
-            chooseMove.chooseObjectives[2] = chooseObjectives[2];
-            
-            int objectivesToKeep = 0;
-            Objective chosenObjectives[3];
-            int idx = 0;
-            for (int i = 0; i < 3; i++) {
-                if (chooseObjectives[i]) {
-                    objectivesToKeep++;
-                    chosenObjectives[idx++] = myMoveResult.objectives[i];
+            {
+                unsigned char chooseObjectives[3] = {1, 1, 1};
+                chooseObjectivesStrategy(state, myMoveResult.objectives, chooseObjectives);
+                
+                MoveData chooseMove;
+                MoveResult chooseMoveResult = {0};
+                
+                chooseMove.action = CHOOSE_OBJECTIVES;
+                chooseMove.chooseObjectives[0] = chooseObjectives[0];
+                chooseMove.chooseObjectives[1] = chooseObjectives[1];
+                chooseMove.chooseObjectives[2] = chooseObjectives[2];
+                
+                int objectivesToKeep = 0;
+                Objective chosenObjectives[3];
+                int idx = 0;
+                for (int i = 0; i < 3; i++) {
+                    if (chooseObjectives[i]) {
+                        objectivesToKeep++;
+                        chosenObjectives[idx++] = myMoveResult.objectives[i];
+                    }
                 }
-            }
-            
-            cleanupMoveResult(&myMoveResult);
-            
-            returnCode = sendMove(&chooseMove, &chooseMoveResult);
-            
-            if (returnCode != ALL_GOOD) {
-                printf("Error choosing objectives: 0x%x\n", returnCode);
+                
+                cleanupMoveResult(&myMoveResult);
+                
+                returnCode = sendMove(&chooseMove, &chooseMoveResult);
+                
+                if (returnCode != ALL_GOOD) {
+                    printf("Error choosing objectives: 0x%x\n", returnCode);
+                    cleanupMoveResult(&chooseMoveResult);
+                    return returnCode;
+                }
+                
+                addObjectives(state, chosenObjectives, objectivesToKeep);
+                
                 cleanupMoveResult(&chooseMoveResult);
-                return returnCode;
             }
-            
-            addObjectives(state, chosenObjectives, objectivesToKeep);
-            
-            cleanupMoveResult(&chooseMoveResult);
-            
             cardDrawnThisTurn = 0;
             break;
     }

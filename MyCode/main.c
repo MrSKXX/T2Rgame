@@ -372,7 +372,7 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
     
     // Attendre un peu entre les parties
     printf("Waiting 3 seconds before next game...\n");
-    sleep(3);
+    sleep(5);
     
     return 0;
 }

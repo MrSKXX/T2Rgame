@@ -24,12 +24,6 @@ typedef struct {
 } Route;
 
 typedef struct {
-    int city;
-    int connectionsNeeded;
-    int priority;
-} MissingConnection;
-
-typedef struct {
     // Plateau
     int nbCities;
     int nbTracks;
@@ -80,13 +74,5 @@ void printConnectivityMatrix(GameState* state);
 
 // Analyse de réseau
 void analyzeExistingNetwork(GameState* state, int* cityConnectivity);
-void findMissingConnections(GameState* state, int* cityConnectivity, 
-                           MissingConnection* missingConnections, int* count);
-
-// Pathfinding intelligent
-int findSmartestPath(GameState* state, int start, int end, int* path, int* pathLength);
-
-// Modélisation adversaire
-void updateOpponentObjectiveModel(GameState* state, int from, int to);
 
 #endif
