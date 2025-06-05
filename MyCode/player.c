@@ -3,7 +3,7 @@
 #include <string.h>
 #include "player.h"
 #include "gamestate.h"
-#include "strategy/strategy.h"
+#include "strategy_simple.h"
 #include "rules.h"
 
 extern void checkObjectivesPaths(GameState* state);
@@ -153,8 +153,6 @@ ResultCode playTurn(GameState* state) {
     for (int i = 0; i < 5; i++) {
         state->visibleCards[i] = boardState.card[i];
     }
-    
-    checkObjectivesPaths(state);
 
     if (cardDrawnThisTurn == 1) {
         CardColor cardToDraw = (CardColor)-1;
@@ -174,106 +172,111 @@ ResultCode playTurn(GameState* state) {
         
         cardDrawnThisTurn = 0;
     } else {
-        int moveResult = decideNextMove(state, &myMove);
-        if (moveResult != 1) {
+        if (state->wagonsLeft <= 1) {
             myMove.action = DRAW_BLIND_CARD;
-        }
-    }
-    
-    // Validation de sécurité pour CLAIM_ROUTE
-    if (myMove.action == CLAIM_ROUTE) {
-        CardColor color = myMove.claimRoute.color;
-        
-        if (color < PURPLE || color > LOCOMOTIVE) {
-            printf("ERROR: Invalid color detected: %d, correcting to GREEN (8)\n", color);
-            myMove.claimRoute.color = GREEN;
-        }
-        
-        int routeIndex = findRouteIndex(state, myMove.claimRoute.from, myMove.claimRoute.to);
-        if (routeIndex >= 0) {
-            int length = state->routes[routeIndex].length;
-            CardColor routeColor = state->routes[routeIndex].color;
-            
-            if (routeColor != LOCOMOTIVE && color != routeColor && 
-                color != state->routes[routeIndex].secondColor && color != LOCOMOTIVE) {
-                
-                printf("CORRECTION: Wrong color for route %d->%d (chosen: %d, route: %d)\n", 
-                      myMove.claimRoute.from, myMove.claimRoute.to, color, routeColor);
-                
-                if (state->nbCardsByColor[routeColor] >= length) {
-                    myMove.claimRoute.color = routeColor;
-                    myMove.claimRoute.nbLocomotives = 0;
-                } else if (state->nbCardsByColor[LOCOMOTIVE] >= length) {
-                    myMove.claimRoute.color = LOCOMOTIVE;
-                    myMove.claimRoute.nbLocomotives = length;
-                } else if (state->nbCardsByColor[routeColor] + state->nbCardsByColor[LOCOMOTIVE] >= length) {
-                    myMove.claimRoute.color = routeColor;
-                    myMove.claimRoute.nbLocomotives = length - state->nbCardsByColor[routeColor];
-                } else {
-                    printf("ERROR: Not enough cards for this route! Drawing instead.\n");
-                    myMove.action = DRAW_BLIND_CARD;
-                }
+        } else {
+            int moveResult = decideNextMove(state, &myMove);
+            if (moveResult != 1) {
+                myMove.action = DRAW_BLIND_CARD;
             }
         }
     }
     
-    // Vérification ultime pour CLAIM_ROUTE
+    // Validation finale avant envoi
     if (myMove.action == CLAIM_ROUTE) {
-        if (myMove.claimRoute.from < 0 || myMove.claimRoute.from >= state->nbCities || 
-            myMove.claimRoute.to < 0 || myMove.claimRoute.to >= state->nbCities) {
-            printf("FATAL ERROR: Invalid cities: %d -> %d\n", 
-                  myMove.claimRoute.from, myMove.claimRoute.to);
+        int from = myMove.claimRoute.from;
+        int to = myMove.claimRoute.to;
+        
+        if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
+            printf("Invalid cities: %d -> %d\n", from, to);
             myMove.action = DRAW_BLIND_CARD;
         }
         else {
-            bool routeFound = false;
-            for (int i = 0; i < state->nbTracks; i++) {
-                if ((state->routes[i].from == myMove.claimRoute.from && 
-                     state->routes[i].to == myMove.claimRoute.to) ||
-                    (state->routes[i].from == myMove.claimRoute.to && 
-                     state->routes[i].to == myMove.claimRoute.from)) {
-                    
-                    routeFound = true;
-                    
-                    if (state->routes[i].owner != 0) {
-                        printf("FATAL ERROR: Route already taken: %d -> %d\n", 
-                              myMove.claimRoute.from, myMove.claimRoute.to);
-                        myMove.action = DRAW_BLIND_CARD;
-                    }
-                    break;
+            int routeIndex = findRouteIndex(state, from, to);
+            if (routeIndex >= 0) {
+                int length = state->routes[routeIndex].length;
+                if (length > state->wagonsLeft) {
+                    printf("Not enough wagons (need %d, have %d)\n", length, state->wagonsLeft);
+                    myMove.action = DRAW_BLIND_CARD;
                 }
-            }
-            
-            if (!routeFound) {
-                printf("FATAL ERROR: Route does not exist: %d -> %d\n", 
-                      myMove.claimRoute.from, myMove.claimRoute.to);
+                
+                if (state->routes[routeIndex].owner != 0) {
+                    printf("Route already taken\n");
+                    myMove.action = DRAW_BLIND_CARD;
+                }
+            } else {
+                printf("Route does not exist\n");
                 myMove.action = DRAW_BLIND_CARD;
             }
         }
         
         if (myMove.claimRoute.color < PURPLE || myMove.claimRoute.color > LOCOMOTIVE) {
-            printf("FATAL ERROR: Invalid color: %d\n", myMove.claimRoute.color);
+            printf("Invalid color: %d\n", myMove.claimRoute.color);
             myMove.action = DRAW_BLIND_CARD;
         }
     }
     
     returnCode = sendMove(&myMove, &myMoveResult);
     
-    if (returnCode == SERVER_ERROR || returnCode == PARAM_ERROR) {
-        printf("Game end or error: 0x%x\n", returnCode);
+    // PREMIÈRE VÉRIFICATION : Détecter les résultats de fin de partie dans la réponse normale
+    if (returnCode == ALL_GOOD && myMoveResult.message && 
+        ((strstr(myMoveResult.message, "Georges:") != NULL && strstr(myMoveResult.message, "PlayNice:") != NULL) ||
+         strstr(myMoveResult.message, "Total score:") != NULL ||
+         strstr(myMoveResult.message, "longest path") != NULL)) {
         
-        if (myMoveResult.message && (
-            strstr(myMoveResult.message, "Total score") || 
-            strstr(myMoveResult.message, "winner") ||
-            strstr(myMoveResult.message, "Final Score"))) {
+        printf("=== GAME RESULTS DETECTED IN NORMAL RESPONSE ===\n");
+        printf("%s\n", myMoveResult.message);
+        state->lastTurn = 2; // Marquer fin de partie
+        cleanupMoveResult(&myMoveResult);
+        return ALL_GOOD; // Retourner succès - la partie est finie
+    }
+    
+    // DEUXIÈME VÉRIFICATION : Dans le state du move result
+    if (returnCode == ALL_GOOD && myMoveResult.state == 1) {
+        printf("=== GAME ENDED - MOVE STATE INDICATES END ===\n");
+        state->lastTurn = 2; // Marquer fin de partie
+        
+        // Essayer de récupérer les résultats avec getMove
+        MoveData finalMove;
+        MoveResult finalResult = {0};
+        getMove(&finalMove, &finalResult);
+        
+        if (finalResult.message) {
+            printf("Final results message: %s\n", finalResult.message);
+            // Ne pas nettoyer ici, on laisse le main() le faire
+        }
+        
+        cleanupMoveResult(&finalResult);
+        cleanupMoveResult(&myMoveResult);
+        return ALL_GOOD;
+    }
+    
+    // Gestion plus douce des erreurs de fin de partie
+    if (returnCode == SERVER_ERROR || returnCode == PARAM_ERROR) {
+        
+        if (myMoveResult.message) {
+            printf("Server response: %s\n", myMoveResult.message);
             
-            printf("\n==================================================\n");
-            printf("           FINAL RESULT DETECTED                 \n");
-            printf("==================================================\n");
-            printf("%s\n", myMoveResult.message);
-            printf("==================================================\n\n");
+            // Détecter les messages de fin de partie complets
+            if (strstr(myMoveResult.message, "Total score") != NULL ||
+                (strstr(myMoveResult.message, "Georges:") != NULL && 
+                 strstr(myMoveResult.message, "PlayNice:") != NULL) ||
+                strstr(myMoveResult.message, "longest path") != NULL) {
+                
+                printf("=== GAME RESULTS RECEIVED ===\n");
+                state->lastTurn = 2; // Marquer fin de partie
+                cleanupMoveResult(&myMoveResult);
+                return ALL_GOOD; // Retourner succès pour éviter erreur
+            }
             
-            state->lastTurn = 2;
+            // Messages de protocole = fin de partie aussi
+            if (strstr(myMoveResult.message, "Bad protocol") ||
+                strstr(myMoveResult.message, "WAIT_GAME")) {
+                printf("=== GAME ENDED - PROTOCOL MESSAGE ===\n");
+                state->lastTurn = 2; // Marquer fin de partie
+                cleanupMoveResult(&myMoveResult);
+                return ALL_GOOD; // Pas une vraie erreur - jeu fini
+            }
         }
         
         cleanupMoveResult(&myMoveResult);
@@ -301,8 +304,23 @@ ResultCode playTurn(GameState* state) {
                 }
                 
                 removeCardsForRoute(state, myMove.claimRoute.color, routeLength, myMove.claimRoute.nbLocomotives);
+                
+                if (state->wagonsLeft <= 2) {
+                    state->lastTurn = 1;
+                }
             } else {
-                printf("WARNING: CLAIM_ROUTE not confirmed by server, state: %d\n", myMoveResult.state);
+                printf("CLAIM_ROUTE not confirmed, state: %d\n", myMoveResult.state);
+                
+                // Si state == 1, c'est la fin de partie !
+                if (myMoveResult.state == 1) {
+                    printf("=== GAME ENDED INDICATED BY MOVE STATE ===\n");
+                    state->lastTurn = 2; // Marquer fin de partie
+                    
+                    // Les résultats vont arriver dans le prochain getMove()
+                    cardDrawnThisTurn = 0;
+                    cleanupMoveResult(&myMoveResult);
+                    return ALL_GOOD; // Sortir immédiatement
+                }
             }
             cardDrawnThisTurn = 0;
             break;

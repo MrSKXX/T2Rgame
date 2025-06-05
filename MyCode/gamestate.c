@@ -195,14 +195,11 @@ void updateAfterOpponentMove(GameState* state, MoveData* moveData) {
             break;
     }
     
-    if (moveData->action == CLAIM_ROUTE) {
-        updateOpponentObjectiveModel(state, moveData->claimRoute.from, moveData->claimRoute.to);
-    }
 }
 
 void updateCityConnectivity(GameState* state) {
-    extern void invalidatePathCache(void);
-    invalidatePathCache();
+    // Supprimé : extern void invalidatePathCache(void);
+    // Supprimé : invalidatePathCache();
     
     if (!state) {
         printf("ERROR: NULL state in updateCityConnectivity\n");
