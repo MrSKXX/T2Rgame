@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -g
 
 # Fichiers sources principaux
-MAIN_SRCS = main.c gamestate.c player.c rules.c strategy_simple.c
+MAIN_SRCS = main.c gamestate.c player.c rules.c strategy.c
 
 # Fichiers API
 API_SRCS = ../tickettorideapi/ticketToRide.c ../tickettorideapi/clientAPI.c

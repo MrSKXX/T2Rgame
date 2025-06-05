@@ -18,14 +18,12 @@ void initGameState(GameState* state, GameData* gameData) {
     state->opponentObjectiveCount = 0;
     state->turnCount = 0;
     
-    // Initialise la matrice de connectivité
     for (int i = 0; i < MAX_CITIES; i++) {
         for (int j = 0; j < MAX_CITIES; j++) {
             state->cityConnected[i][j] = 0;
         }
     }
     
-    // Parse les données de routes
     int* trackData = gameData->trackData;
     for (int i = 0; i < state->nbTracks; i++) {
         int from = trackData[i*5];
@@ -75,12 +73,10 @@ void removeCardsForRoute(GameState* state, CardColor color, int length, int nbLo
         return;
     }
     
-    // Mettre à jour directement les compteurs
     state->nbCardsByColor[color] -= (length - nbLocomotives);
     state->nbCardsByColor[LOCOMOTIVE] -= nbLocomotives;
     state->nbCards -= length;
     
-    // Vérification de sécurité pour éviter les valeurs négatives
     if (state->nbCardsByColor[color] < 0) {
         printf("WARNING: Negative card count corrected for color %d\n", color);
         state->nbCardsByColor[color] = 0;
@@ -103,7 +99,6 @@ void addClaimedRoute(GameState* state, int from, int to) {
         return;
     }
     
-    // Trouve l'index de la route
     int routeIndex = -1;
     for (int i = 0; i < state->nbTracks; i++) {
         if ((state->routes[i].from == from && state->routes[i].to == to) ||
@@ -206,14 +201,12 @@ void updateCityConnectivity(GameState* state) {
         return;
     }
     
-    // Réinitialise la matrice
     for (int i = 0; i < state->nbCities; i++) {
         for (int j = 0; j < state->nbCities; j++) {
             state->cityConnected[i][j] = 0;
         }
     }
     
-    // Pour chaque route que nous possédons
     for (int i = 0; i < state->nbClaimedRoutes; i++) {
         int routeIndex = state->claimedRoutes[i];
         
@@ -234,7 +227,6 @@ void updateCityConnectivity(GameState* state) {
         state->cityConnected[to][from] = 1;
     }
     
-    // Algorithme de Floyd-Warshall pour trouver toutes les connectivités transitives
     for (int k = 0; k < state->nbCities; k++) {
         for (int i = 0; i < state->nbCities; i++) {
             for (int j = 0; j < state->nbCities; j++) {
@@ -274,4 +266,3 @@ void analyzeExistingNetwork(GameState* state, int* cityConnectivity) {
         }
     }
 }
-

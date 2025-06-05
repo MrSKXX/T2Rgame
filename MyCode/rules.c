@@ -39,7 +39,6 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
     CardColor routeColor = state->routes[routeIndex].color;
     CardColor routeSecondColor = state->routes[routeIndex].secondColor;
 
-    // Pour les routes grises (représentées par LOCOMOTIVE)
     if (routeColor == LOCOMOTIVE) {
         if (color == LOCOMOTIVE) {
             int locomotives = state->nbCardsByColor[LOCOMOTIVE];
@@ -64,7 +63,6 @@ int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLo
             return 0;
         }
     }
-    // Pour les routes non grises, on doit respecter la couleur
     else {
         bool validColor = false;
         
@@ -220,7 +218,7 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
                             possibleRoutes[count] = i;
                             
                             if (color < 1 || color > 9) {
-                                color = 6; // BLACK par défaut
+                                color = 6;
                             }
                             possibleColors[count] = color;
                             possibleLocomotives[count] = nbLocomotives;
@@ -321,19 +319,16 @@ int isValidMove(GameState* state, MoveData* move) {
             int to = move->claimRoute.to;
             CardColor color = move->claimRoute.color;
             
-            // Vérifier villes
             if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
                 printf("VALIDATION FAILED: Invalid cities %d->%d\n", from, to);
                 return 0;
             }
             
-            // Vérifier couleur
             if (color < PURPLE || color > LOCOMOTIVE) {
                 printf("VALIDATION FAILED: Invalid color %d\n", color);
                 return 0;
             }
             
-            // Vérifier que la route existe et est libre
             int routeIndex = findRouteIndex(state, from, to);
             if (routeIndex < 0) {
                 printf("VALIDATION FAILED: Route %d->%d does not exist\n", from, to);
@@ -345,7 +340,6 @@ int isValidMove(GameState* state, MoveData* move) {
                 return 0;
             }
             
-            // Vérifier cartes suffisantes
             int nbLoco;
             if (!canClaimRoute(state, from, to, color, &nbLoco)) {
                 printf("VALIDATION FAILED: Not enough cards for %d->%d\n", from, to);

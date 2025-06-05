@@ -3,7 +3,7 @@
 #include <string.h>
 #include "player.h"
 #include "gamestate.h"
-#include "strategy_simple.h"
+#include "strategy.h"
 #include "rules.h"
 
 void cleanupMoveResult(MoveResult *moveResult) {
@@ -57,11 +57,9 @@ ResultCode playFirstTurn(GameState* state) {
     
     bool objectivesValid = true;
     for (int i = 0; i < 3; i++) {
-        if (myMoveResult.objectives[i].from < 0 || 
-            myMoveResult.objectives[i].from >= state->nbCities ||
-            myMoveResult.objectives[i].to < 0 || 
-            myMoveResult.objectives[i].to >= state->nbCities) {
-            printf("WARNING: Invalid objective received: From %d to %d\n", 
+        if ((int)myMoveResult.objectives[i].from >= state->nbCities ||
+            (int)myMoveResult.objectives[i].to >= state->nbCities) {
+            printf("WARNING: Invalid objective received: From %u to %u\n", 
                    myMoveResult.objectives[i].from, myMoveResult.objectives[i].to);
             objectivesValid = false;
         }
@@ -180,7 +178,6 @@ ResultCode playTurn(GameState* state) {
         }
     }
     
-    // Validation finale avant envoi
     if (myMove.action == CLAIM_ROUTE) {
         int from = myMove.claimRoute.from;
         int to = myMove.claimRoute.to;
@@ -216,7 +213,6 @@ ResultCode playTurn(GameState* state) {
     
     returnCode = sendMove(&myMove, &myMoveResult);
     
-    // PREMIÈRE VÉRIFICATION : Détecter les résultats de fin de partie dans la réponse normale
     if (returnCode == ALL_GOOD && myMoveResult.message && 
         ((strstr(myMoveResult.message, "Georges:") != NULL && strstr(myMoveResult.message, "PlayNice:") != NULL) ||
          strstr(myMoveResult.message, "Total score:") != NULL ||
@@ -224,24 +220,21 @@ ResultCode playTurn(GameState* state) {
         
         printf("=== GAME RESULTS DETECTED IN NORMAL RESPONSE ===\n");
         printf("%s\n", myMoveResult.message);
-        state->lastTurn = 2; // Marquer fin de partie
+        state->lastTurn = 2;
         cleanupMoveResult(&myMoveResult);
-        return ALL_GOOD; // Retourner succès - la partie est finie
+        return ALL_GOOD;
     }
     
-    // DEUXIÈME VÉRIFICATION : Dans le state du move result
     if (returnCode == ALL_GOOD && myMoveResult.state == 1) {
         printf("=== GAME ENDED - MOVE STATE INDICATES END ===\n");
-        state->lastTurn = 2; // Marquer fin de partie
+        state->lastTurn = 2;
         
-        // Essayer de récupérer les résultats avec getMove
         MoveData finalMove;
         MoveResult finalResult = {0};
         getMove(&finalMove, &finalResult);
         
         if (finalResult.message) {
             printf("Final results message: %s\n", finalResult.message);
-            // Ne pas nettoyer ici, on laisse le main() le faire
         }
         
         cleanupMoveResult(&finalResult);
@@ -249,31 +242,28 @@ ResultCode playTurn(GameState* state) {
         return ALL_GOOD;
     }
     
-    // Gestion plus douce des erreurs de fin de partie
     if (returnCode == SERVER_ERROR || returnCode == PARAM_ERROR) {
         
         if (myMoveResult.message) {
             printf("Server response: %s\n", myMoveResult.message);
             
-            // Détecter les messages de fin de partie complets
             if (strstr(myMoveResult.message, "Total score") != NULL ||
                 (strstr(myMoveResult.message, "Georges:") != NULL && 
                  strstr(myMoveResult.message, "PlayNice:") != NULL) ||
                 strstr(myMoveResult.message, "longest path") != NULL) {
                 
                 printf("=== GAME RESULTS RECEIVED ===\n");
-                state->lastTurn = 2; // Marquer fin de partie
+                state->lastTurn = 2;
                 cleanupMoveResult(&myMoveResult);
-                return ALL_GOOD; // Retourner succès pour éviter erreur
+                return ALL_GOOD;
             }
             
-            // Messages de protocole = fin de partie aussi
             if (strstr(myMoveResult.message, "Bad protocol") ||
                 strstr(myMoveResult.message, "WAIT_GAME")) {
                 printf("=== GAME ENDED - PROTOCOL MESSAGE ===\n");
-                state->lastTurn = 2; // Marquer fin de partie
+                state->lastTurn = 2;
                 cleanupMoveResult(&myMoveResult);
-                return ALL_GOOD; // Pas une vraie erreur - jeu fini
+                return ALL_GOOD;
             }
         }
         
@@ -294,8 +284,10 @@ ResultCode playTurn(GameState* state) {
                 
                 int routeLength = 0;
                 for (int i = 0; i < state->nbTracks; i++) {
-                    if ((state->routes[i].from == myMove.claimRoute.from && state->routes[i].to == myMove.claimRoute.to) ||
-                        (state->routes[i].from == myMove.claimRoute.to && state->routes[i].to == myMove.claimRoute.from)) {
+                    if (((unsigned int)state->routes[i].from == myMove.claimRoute.from && 
+                         (unsigned int)state->routes[i].to == myMove.claimRoute.to) ||
+                        ((unsigned int)state->routes[i].from == myMove.claimRoute.to && 
+                         (unsigned int)state->routes[i].to == myMove.claimRoute.from)) {
                         routeLength = state->routes[i].length;
                         break;
                     }
@@ -309,15 +301,13 @@ ResultCode playTurn(GameState* state) {
             } else {
                 printf("CLAIM_ROUTE not confirmed, state: %d\n", myMoveResult.state);
                 
-                // Si state == 1, c'est la fin de partie !
                 if (myMoveResult.state == 1) {
                     printf("=== GAME ENDED INDICATED BY MOVE STATE ===\n");
-                    state->lastTurn = 2; // Marquer fin de partie
+                    state->lastTurn = 2;
                     
-                    // Les résultats vont arriver dans le prochain getMove()
                     cardDrawnThisTurn = 0;
                     cleanupMoveResult(&myMoveResult);
-                    return ALL_GOOD; // Sortir immédiatement
+                    return ALL_GOOD;
                 }
             }
             cardDrawnThisTurn = 0;
@@ -388,6 +378,10 @@ ResultCode playTurn(GameState* state) {
                 
                 cleanupMoveResult(&chooseMoveResult);
             }
+            cardDrawnThisTurn = 0;
+            break;
+            
+        case CHOOSE_OBJECTIVES:
             cardDrawnThisTurn = 0;
             break;
     }
