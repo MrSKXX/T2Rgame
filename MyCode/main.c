@@ -19,10 +19,11 @@ typedef struct {
     int wagonsLeft;
     int objectivesCompleted;
     int totalObjectives;
-    char result[50];
+    char serverResults[2048];
+    bool hasServerResults;
 } GameResult;
 
-void printGameResult(int gameNumber, int finalScore, char* finalResultsMessage) {
+void printGameResult(int gameNumber, int finalScore, char* finalResultsMessage, bool hasServerResults) {
     printf("\n=== GAME %d RESULTS ===\n", gameNumber);
     
     if (finalResultsMessage && strlen(finalResultsMessage) > 0) {
@@ -31,7 +32,7 @@ void printGameResult(int gameNumber, int finalScore, char* finalResultsMessage) 
         printf("Could not retrieve results from server.\n");
     }
     
-    printf("Our score: %d\n", finalScore);
+    printf("Our score: %d %s\n", finalScore, hasServerResults ? "[Server Results]" : "[Local Calculation]");
     printf("======================\n\n");
 }
 
@@ -52,13 +53,11 @@ bool isGameOver(char* message) {
     if (!message) return false;
     
     return (strstr(message, "Total score:") != NULL && strstr(message, "pts") != NULL) ||
-           (strstr(message, "Georges:") != NULL && strstr(message, "PlayNice:") != NULL && strstr(message, "Objective") != NULL);
-}
-
-bool isGameEndMessage(char* message) {
-    if (!message) return false;
-    
-    return (strstr(message, "Bad protocol, should send 'WAIT_GAME") != NULL);
+           (strstr(message, "Georges:") != NULL && strstr(message, "PlayNice:") != NULL && strstr(message, "Objective") != NULL) ||
+           (strstr(message, "Player Georges has the longest path") != NULL) ||
+           (strstr(message, "Player PlayNice has the longest path") != NULL) ||
+           (strstr(message, "✔Objective") != NULL && strstr(message, "✘Objective") != NULL) ||
+           (strstr(message, "[getCGSMove]") != NULL);
 }
 
 int playOneGame(int gameNumber, GameResult* gameResult) {
@@ -68,7 +67,7 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
     
     const char* serverAddress = "82.29.170.160";
     unsigned int serverPort = 15001;
-    const char* playerName = "Georges";
+    const char* playerName = "Georges123";
     
     ResultCode result = connectToCGS(serverAddress, serverPort, playerName);
     if (result != ALL_GOOD) {
@@ -79,7 +78,7 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
     const char* gameSettings = "TRAINING NICE_BOT";
     GameData gameData;
 
-    result = sendGameSettings(gameSettings, &gameData);
+    result = sendGameSettings("", &gameData);
     if (result != ALL_GOOD) {
         printf("Settings failed for game %d: 0x%x\n", gameNumber, result);
         return -1;
@@ -110,12 +109,23 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
         MoveResult currentResult = {0};
         ResultCode currentCode = getMove(&dummyMove, &currentResult);
         
+        if (currentResult.state != 0) {
+            printf("=== GAME %d ENDED (MoveState=%d) ===\n", gameNumber, currentResult.state);
+            if (currentResult.message) {
+                printf("Final server message:\n%s\n", currentResult.message);
+                strncpy(lastErrorMessage, currentResult.message, sizeof(lastErrorMessage)-1);
+            }
+            cleanupMoveResult(&currentResult);
+            gameRunning = false;
+            gameEnded = true;
+            break;
+        }
+        
         if (currentResult.message && isGameOver(currentResult.message)) {
             printf("=== GAME %d RESULTS RECEIVED ===\n", gameNumber);
             printf("%s\n", currentResult.message);
             strncpy(lastErrorMessage, currentResult.message, sizeof(lastErrorMessage)-1);
             cleanupMoveResult(&currentResult);
-            
             gameRunning = false;
             gameEnded = true;
             break;
@@ -141,16 +151,28 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
         if (currentCode == ALL_GOOD) {
             updateAfterOpponentMove(&gameState, &dummyMove);
             
-            if (gameState.opponentWagonsLeft <= 0) {
-                printf("Game %d: Opponent out of wagons - GAME ENDED\n", gameNumber);
-                gameState.lastTurn = 1;
+            if (currentResult.message && 
+                (strstr(currentResult.message, "[getCGSMove]") != NULL ||
+                 strstr(currentResult.message, "Total score:") != NULL ||
+                 strstr(currentResult.message, "✔Objective") != NULL ||
+                 strstr(currentResult.message, "longest path") != NULL)) {
                 
-                printf("Game %d: Waiting for server to send final results...\n", gameNumber);
+                printf("=== GAME %d RESULTS DETECTED IN OPPONENT MOVE ===\n", gameNumber);
+                printf("%s\n", currentResult.message);
+                strncpy(lastErrorMessage, currentResult.message, sizeof(lastErrorMessage)-1);
+                cleanupMoveResult(&currentResult);
+                
                 gameRunning = false;
                 gameEnded = true;
-                
+                break;
+            }
+            
+            if (gameState.opponentWagonsLeft <= 0) {
+                printf("Game %d: Opponent out of wagons - LAST TURN TRIGGERED\n", gameNumber);
+                gameState.lastTurn = 1;
             } else if (gameState.opponentWagonsLeft <= 2) {
                 gameState.lastTurn = 1;
+                printf("Game %d: Last turn triggered by opponent (≤2 wagons)\n", gameNumber);
             }
             
             if (!currentResult.replay && !gameEnded) {
@@ -188,34 +210,18 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
         
         cleanupMoveResult(&currentResult);
         
-        if (gameState.opponentWagonsLeft <= 0) {
-            printf("Game %d: Opponent wagons exhausted (%d) - ending game immediately\n", 
-                   gameNumber, gameState.opponentWagonsLeft);
-            gameRunning = false;
-            gameEnded = true;
-            continue;
-        }
-        
         if (itsOurTurn && !gameEnded && gameRunning) {
             updateBoardState(&gameState);
             
             if (gameState.wagonsLeft <= 0) {
-                printf("Game %d: We are out of wagons - waiting for final results...\n", gameNumber);
+                printf("Game %d: We are out of wagons - LAST TURN TRIGGERED\n", gameNumber);
                 gameState.lastTurn = 1;
-                gameRunning = false;
-                gameEnded = true;
-            }
-            
-            if (gameState.opponentWagonsLeft <= 0) {
-                printf("Game %d: Opponent out of wagons detected during our turn - stopping\n", gameNumber);
-                gameRunning = false;
-                gameEnded = true;
-                break;
             }
             
             if (turnCounter % 10 == 0 || gameState.lastTurn) {
-                printf("Game %d Turn %d - Wagons: Us=%d, Opp=%d\n", 
-                       gameNumber, turnCounter, gameState.wagonsLeft, gameState.opponentWagonsLeft);
+                printf("Game %d Turn %d - Wagons: Us=%d, Opp=%d%s\n", 
+                       gameNumber, turnCounter, gameState.wagonsLeft, gameState.opponentWagonsLeft,
+                       gameState.lastTurn ? " [LAST TURN]" : "");
             }
             
             if (strlen(lastErrorMessage) > 0 && 
@@ -250,13 +256,72 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
                 
                 if (gameState.wagonsLeft <= 2) {
                     gameState.lastTurn = 1;
+                    printf("Game %d: Last turn triggered by us (≤2 wagons)\n", gameNumber);
+                }
+                
+                if (gameState.wagonsLeft <= 0) {
+                    printf("Game %d: We exhausted wagons - staying in loop to catch results\n", gameNumber);
+                    MoveResult immediateCheck = {0};
+                    ResultCode immediateCode = getMove(&dummyMove, &immediateCheck);
+                    
+                    if (immediateCheck.state != 0) {
+                        printf("=== GAME %d ENDED IMMEDIATELY AFTER WAGON EXHAUSTION ===\n", gameNumber);
+                        if (immediateCheck.message) {
+                            printf("%s\n", immediateCheck.message);
+                            strncpy(lastErrorMessage, immediateCheck.message, sizeof(lastErrorMessage)-1);
+                        }
+                        cleanupMoveResult(&immediateCheck);
+                        gameRunning = false;
+                        gameEnded = true;
+                        break;
+                    }
+                    
+                    if (immediateCheck.message && isGameOver(immediateCheck.message)) {
+                        printf("=== GAME %d RESULTS CAPTURED AFTER WAGON EXHAUSTION ===\n", gameNumber);
+                        printf("%s\n", immediateCheck.message);
+                        strncpy(lastErrorMessage, immediateCheck.message, sizeof(lastErrorMessage)-1);
+                        cleanupMoveResult(&immediateCheck);
+                        gameRunning = false;
+                        gameEnded = true;
+                        break;
+                    }
+                    
+                    cleanupMoveResult(&immediateCheck);
                 }
             } 
             else {
+                printf("Play error in game %d: 0x%x\n", gameNumber, playCode);
+                
                 MoveResult errorResult = {0};
-                getMove(&dummyMove, &errorResult);
+                ResultCode errorCode = getMove(&dummyMove, &errorResult);
+                
+                if (errorResult.state != 0) {
+                    printf("=== GAME %d ENDED AFTER PLAY ERROR (state=%d) ===\n", gameNumber, errorResult.state);
+                    if (errorResult.message) {
+                        printf("%s\n", errorResult.message);
+                        strncpy(lastErrorMessage, errorResult.message, sizeof(lastErrorMessage)-1);
+                    }
+                    cleanupMoveResult(&errorResult);
+                    gameRunning = false;
+                    gameEnded = true;
+                    break;
+                }
                 
                 if (errorResult.message) {
+                    if (strstr(errorResult.message, "Bad protocol") && 
+                        strstr(errorResult.message, "WAIT_GAME")) {
+                        printf("=== GAME %d PROTOCOL ERROR - STAYING IN LOOP FOR RESULTS ===\n", gameNumber);
+                        printf("Server says: %s\n", errorResult.message);
+                        cleanupMoveResult(&errorResult);
+                        
+                        consecutiveErrors++;
+                        if (consecutiveErrors > 10) {
+                            printf("Game %d: Too many protocol errors, ending\n", gameNumber);
+                            gameRunning = false;
+                        }
+                        continue;
+                    }
+                    
                     if (isGameOver(errorResult.message)) {
                         printf("=== GAME %d COMPLETE RESULTS RECEIVED ===\n", gameNumber);
                         printf("%s\n", errorResult.message);
@@ -267,13 +332,14 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
                         gameEnded = true;
                         break;
                     }
+                    
                     strncpy(lastErrorMessage, errorResult.message, sizeof(lastErrorMessage)-1);
                 }
                 
                 cleanupMoveResult(&errorResult);
                 
                 consecutiveErrors++;
-                if (consecutiveErrors > 3) {
+                if (consecutiveErrors > 10) {
                     printf("Game %d: Too many consecutive errors, ending game\n", gameNumber);
                     gameRunning = false;
                 }
@@ -301,32 +367,35 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
     }
     
     char finalResultsMessage[2048] = {0};
+    bool hasServerResults = false;
     
     if (strlen(lastErrorMessage) > 0) {
         strncpy(finalResultsMessage, lastErrorMessage, sizeof(finalResultsMessage)-1);
+        hasServerResults = true;
     } else {
         snprintf(finalResultsMessage, sizeof(finalResultsMessage),
                 "Game %d final score: %d\nWagons left: %d\nObjectives completed: %d/%d\n",
                 gameNumber, finalScore, gameState.wagonsLeft, 
                 completedObjectives, gameState.nbObjectives);
+        hasServerResults = false;
     }
     
-    printGameResult(gameNumber, finalScore, finalResultsMessage);
+    printGameResult(gameNumber, finalScore, finalResultsMessage, hasServerResults);
     
     gameResult->gameNumber = gameNumber;
     gameResult->finalScore = finalScore;
     gameResult->wagonsLeft = gameState.wagonsLeft;
     gameResult->objectivesCompleted = completedObjectives;
     gameResult->totalObjectives = gameState.nbObjectives;
+    gameResult->hasServerResults = hasServerResults;
     
-    if (strstr(lastErrorMessage, "Georges:") && strstr(lastErrorMessage, "PlayNice:")) {
-        if (strstr(lastErrorMessage, "Georges") < strstr(lastErrorMessage, "PlayNice")) {
-            strcpy(gameResult->result, "Unknown");
-        } else {
-            strcpy(gameResult->result, "Unknown");
-        }
+    if (hasServerResults) {
+        strncpy(gameResult->serverResults, lastErrorMessage, sizeof(gameResult->serverResults)-1);
     } else {
-        strcpy(gameResult->result, "Unknown");
+        snprintf(gameResult->serverResults, sizeof(gameResult->serverResults),
+                "Game %d final score: %d\nWagons left: %d\nObjectives: %d/%d",
+                gameNumber, finalScore, gameState.wagonsLeft, 
+                completedObjectives, gameState.nbObjectives);
     }
     
     if (gameData.gameName) free(gameData.gameName);
@@ -337,8 +406,7 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
     
     printf("Game %d completed successfully!\n\n", gameNumber);
     
-    printf("Waiting 3 seconds before next game...\n");
-    sleep(5);
+    sleep(1);
     
     return 0;
 }
@@ -366,33 +434,41 @@ int main() {
     printf("\n========================================\n");
     printf("           FINAL SESSION SUMMARY\n");
     printf("========================================\n");
-    printf("Games played: %d/%d\n\n", successfulGames, NUMBER_OF_GAMES);
+    printf("Games completed: %d/%d\n\n", successfulGames, NUMBER_OF_GAMES);
     
     if (successfulGames > 0) {
         int totalScore = 0;
         int totalObjectives = 0;
         int totalObjectivesCompleted = 0;
+        int gamesWithServerResults = 0;
         
         for (int i = 0; i < successfulGames; i++) {
-            printf("Game %d: Score=%d, Objectives=%d/%d, Wagons left=%d\n", 
-                   gameResults[i].gameNumber,
-                   gameResults[i].finalScore,
-                   gameResults[i].objectivesCompleted,
-                   gameResults[i].totalObjectives,
-                   gameResults[i].wagonsLeft);
+            GameResult* gr = &gameResults[i];
             
-            totalScore += gameResults[i].finalScore;
-            totalObjectivesCompleted += gameResults[i].objectivesCompleted;
-            totalObjectives += gameResults[i].totalObjectives;
+            printf("Game %d: Score=%d, Objectives=%d/%d, Wagons left=%d %s\n", 
+                   gr->gameNumber, gr->finalScore, gr->objectivesCompleted,
+                   gr->totalObjectives, gr->wagonsLeft,
+                   gr->hasServerResults ? "[Server Results]" : "[Local Only]");
+            
+            totalScore += gr->finalScore;
+            totalObjectivesCompleted += gr->objectivesCompleted;
+            totalObjectives += gr->totalObjectives;
+            
+            if (gr->hasServerResults) {
+                gamesWithServerResults++;
+            }
         }
         
         printf("\n--- AVERAGES ---\n");
         printf("Average score: %.1f\n", (float)totalScore / successfulGames);
-        printf("Average objectives completed: %.1f/%1.f\n", 
+        printf("Average objectives completed: %.1f/%.1f\n", 
                (float)totalObjectivesCompleted / successfulGames,
                (float)totalObjectives / successfulGames);
         printf("Objective completion rate: %.1f%%\n", 
                ((float)totalObjectivesCompleted / totalObjectives) * 100);
+        printf("Server results captured: %d/%d games (%.1f%%)\n", 
+               gamesWithServerResults, successfulGames,
+               (float)gamesWithServerResults / successfulGames * 100);
     }
     
     printf("\nSession completed!\n");

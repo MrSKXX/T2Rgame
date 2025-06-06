@@ -212,6 +212,19 @@ ResultCode playTurn(GameState* state) {
     }
     
     returnCode = sendMove(&myMove, &myMoveResult);
+    if (returnCode == ALL_GOOD && myMoveResult.message) {
+        if (strstr(myMoveResult.message, "[sendCGSMove]") != NULL ||
+            strstr(myMoveResult.message, "Total score:") != NULL ||
+            strstr(myMoveResult.message, "✔Objective") != NULL ||
+            strstr(myMoveResult.message, "longest path") != NULL) {
+            
+            printf("=== GAME RESULTS DETECTED IN OUR MOVE RESPONSE ===\n");
+            printf("%s\n", myMoveResult.message);
+            state->lastTurn = 2; // Force game end
+            cleanupMoveResult(&myMoveResult);
+            return ALL_GOOD;
+        }
+    }
     
     if (returnCode == ALL_GOOD && myMoveResult.message && 
         ((strstr(myMoveResult.message, "Georges:") != NULL && strstr(myMoveResult.message, "PlayNice:") != NULL) ||

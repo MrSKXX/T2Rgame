@@ -24,4 +24,10 @@ int alternativeStrategy(GameState* state, MoveData* moveData, void* objData, int
 int findAlternativePath(GameState* state, int from, int to, MoveData* moveData);
 int drawCardsForRouteAggressively(GameState* state, int from, int to, MoveData* moveData);
 
+int isAntiAdversaireMode(GameState* state);
+int handleAntiAdversaire(GameState* state, MoveData* moveData);
+int findQuickestObjective(GameState* state);
+int buildFromExistingNetwork(GameState* state, MoveData* moveData);
+int takeAnyProfitableRoute(GameState* state, MoveData* moveData);
+int workOnSpecificObjective(GameState* state, MoveData* moveData, int objectiveIndex);
 #endif

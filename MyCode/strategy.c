@@ -263,7 +263,11 @@ int simpleStrategy(GameState* state, MoveData* moveData) {
         moveData->action = DRAW_OBJECTIVES;
         return 1;
     }
-    
+    if (isAntiAdversaireMode(state)) {
+        printf("=== ANTI-ADVERSAIRE MODE ACTIVATED ===\n");
+        return handleAntiAdversaire(state, moveData);
+    }
+
     int isEndgame = (state->lastTurn || state->wagonsLeft <= 3 || state->opponentWagonsLeft <= 3);
     int isLateGame = (state->wagonsLeft <= 8 || state->opponentWagonsLeft <= 8);
     
@@ -1267,4 +1271,202 @@ int decideNextMove(GameState* state, MoveData* moveData) {
 
 void chooseObjectivesStrategy(GameState* state, Objective* objectives, unsigned char* chooseObjectives) {
     simpleChooseObjectives(state, objectives, chooseObjectives);
+}
+
+// Détecter si on doit passer en mode anti-adversaire
+int isAntiAdversaireMode(GameState* state) {
+    // Si l'adversaire va finir bientôt ET on a trop de cartes
+    int adversaireProcheFin = (state->opponentWagonsLeft <= 5);
+    int tropDeCartes = (state->nbCards > 15);
+    int dernierTour = state->lastTurn;
+    
+    return (adversaireProcheFin && tropDeCartes) || dernierTour;
+}
+
+// Stratégie anti-adversaire : déposer les cartes rapidement
+int handleAntiAdversaire(GameState* state, MoveData* moveData) {
+    printf("Anti-adversaire: Opp wagons=%d, our cards=%d\n", 
+           state->opponentWagonsLeft, state->nbCards);
+    
+    // 1. Essayer de compléter un objectif rapidement
+    int quickObjective = findQuickestObjective(state);
+    if (quickObjective >= 0) {
+        printf("Quick objective completion attempt\n");
+        return workOnSpecificObjective(state, moveData, quickObjective);
+    }
+    
+    // 2. Étendre notre réseau existant (routes longues)
+    if (buildFromExistingNetwork(state, moveData)) {
+        return 1;
+    }
+    
+    // 3. Prendre n'importe quelle route profitable
+    if (takeAnyProfitableRoute(state, moveData)) {
+        return 1;
+    }
+    
+    // 4. En dernier recours, piocher
+    moveData->action = DRAW_BLIND_CARD;
+    return 1;
+}
+
+// Trouver l'objectif le plus rapide à compléter
+int findQuickestObjective(GameState* state) {
+    int bestObjective = -1;
+    int lowestCost = 999;
+    
+    for (int i = 0; i < state->nbObjectives; i++) {
+        if (isObjectiveCompleted(state, state->objectives[i])) {
+            continue;
+        }
+        
+        int objFrom = state->objectives[i].from;
+        int objTo = state->objectives[i].to;
+        
+        int path[MAX_CITIES];
+        int pathLength = 0;
+        int distance = findSmartestPath(state, objFrom, objTo, path, &pathLength);
+        
+        if (distance > 0) {
+            int routesNeeded = 0;
+            int wagonsNeeded = 0;
+            
+            for (int j = 0; j < pathLength - 1; j++) {
+                if (getRouteOwner(state, path[j], path[j+1]) == 0) {
+                    routesNeeded++;
+                    wagonsNeeded += 2; // Estimation moyenne
+                }
+            }
+            
+            if (wagonsNeeded <= state->wagonsLeft && wagonsNeeded < lowestCost) {
+                lowestCost = wagonsNeeded;
+                bestObjective = i;
+            }
+        }
+    }
+    
+    return bestObjective;
+}
+
+// Construire à partir du réseau existant
+int buildFromExistingNetwork(GameState* state, MoveData* moveData) {
+    // Trouver les villes de notre réseau
+    int networkCities[MAX_CITIES];
+    int networkCityCount = 0;
+    
+    for (int i = 0; i < state->nbClaimedRoutes; i++) {
+        int routeIndex = state->claimedRoutes[i];
+        if (routeIndex >= 0 && routeIndex < state->nbTracks) {
+            int from = state->routes[routeIndex].from;
+            int to = state->routes[routeIndex].to;
+            
+            // Ajouter les villes au réseau
+            int fromFound = 0, toFound = 0;
+            for (int j = 0; j < networkCityCount; j++) {
+                if (networkCities[j] == from) fromFound = 1;
+                if (networkCities[j] == to) toFound = 1;
+            }
+            if (!fromFound && networkCityCount < MAX_CITIES) {
+                networkCities[networkCityCount++] = from;
+            }
+            if (!toFound && networkCityCount < MAX_CITIES) {
+                networkCities[networkCityCount++] = to;
+            }
+        }
+    }
+    
+    // Trouver les meilleures extensions
+    int bestRoute = -1;
+    int bestValue = 0;
+    
+    for (int i = 0; i < state->nbTracks; i++) {
+        if (state->routes[i].owner == 0) {
+            int from = state->routes[i].from;
+            int to = state->routes[i].to;
+            int length = state->routes[i].length;
+            
+            // Vérifier si ça connecte à notre réseau
+            int connectsToNetwork = 0;
+            for (int j = 0; j < networkCityCount; j++) {
+                if (networkCities[j] == from || networkCities[j] == to) {
+                    connectsToNetwork = 1;
+                    break;
+                }
+            }
+            
+            if (connectsToNetwork && canTakeRoute(state, from, to, moveData)) {
+                int value = length * 10; // Privilégier les routes longues
+                if (length >= 5) value += 50;
+                
+                if (value > bestValue) {
+                    bestValue = value;
+                    bestRoute = i;
+                }
+            }
+        }
+    }
+    
+    if (bestRoute >= 0) {
+        int from = state->routes[bestRoute].from;
+        int to = state->routes[bestRoute].to;
+        printf("Anti-adversaire: Extending network %d->%d\n", from, to);
+        return canTakeRoute(state, from, to, moveData);
+    }
+    
+    return 0;
+}
+
+// Prendre n'importe quelle route profitable
+int takeAnyProfitableRoute(GameState* state, MoveData* moveData) {
+    int bestRoute = -1;
+    int bestValue = 0;
+    
+    for (int i = 0; i < state->nbTracks; i++) {
+        if (state->routes[i].owner == 0) {
+            int from = state->routes[i].from;
+            int to = state->routes[i].to;
+            int length = state->routes[i].length;
+            
+            if (length >= 4 && canTakeRoute(state, from, to, moveData)) {
+                int value = length;
+                if (value > bestValue) {
+                    bestValue = value;
+                    bestRoute = i;
+                }
+            }
+        }
+    }
+    
+    if (bestRoute >= 0) {
+        int from = state->routes[bestRoute].from;
+        int to = state->routes[bestRoute].to;
+        printf("Anti-adversaire: Taking profitable route %d->%d\n", from, to);
+        return canTakeRoute(state, from, to, moveData);
+    }
+    
+    return 0;
+}
+
+// Travailler sur un objectif spécifique
+int workOnSpecificObjective(GameState* state, MoveData* moveData, int objectiveIndex) {
+    int objFrom = state->objectives[objectiveIndex].from;
+    int objTo = state->objectives[objectiveIndex].to;
+    
+    int path[MAX_CITIES];
+    int pathLength = 0;
+    findSmartestPath(state, objFrom, objTo, path, &pathLength);
+    
+    for (int i = 0; i < pathLength - 1; i++) {
+        int cityA = path[i];
+        int cityB = path[i + 1];
+        
+        if (getRouteOwner(state, cityA, cityB) == 0) {
+            if (canTakeRoute(state, cityA, cityB, moveData)) {
+                printf("Anti-adversaire: Quick objective route %d->%d\n", cityA, cityB);
+                return 1;
+            }
+        }
+    }
+    
+    return 0;
 }
