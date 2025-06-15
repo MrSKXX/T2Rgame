@@ -37,6 +37,9 @@ ResultCode playFirstTurn(GameState* state) {
     returnCode = sendMove(&myMove, &myMoveResult);
     
     if (returnCode != ALL_GOOD) {
+        if (myMoveResult.message) {
+            printf("Server message: %s\n", myMoveResult.message);
+        }
         cleanupMoveResult(&myMoveResult);
         return returnCode;
     }
@@ -98,6 +101,9 @@ ResultCode playFirstTurn(GameState* state) {
     returnCode = sendMove(&chooseMove, &chooseMoveResult);
     
     if (returnCode != ALL_GOOD) {
+        if (chooseMoveResult.message) {
+            printf("Server message: %s\n", chooseMoveResult.message);
+        }
         cleanupMoveResult(&chooseMoveResult);
         return returnCode;
     }
@@ -122,11 +128,6 @@ ResultCode playTurn(GameState* state) {
         return returnCode;
     }
     
-    if (state->wagonsLeft <= 0) {
-        state->lastTurn = 1;
-        return ALL_GOOD; 
-    }
-
     for (int i = 0; i < 5; i++) {
         state->visibleCards[i] = boardState.card[i];
     }
@@ -159,6 +160,7 @@ ResultCode playTurn(GameState* state) {
         }
     }
     
+    // Validate move before sending
     if (myMove.action == CLAIM_ROUTE) {
         int from = myMove.claimRoute.from;
         int to = myMove.claimRoute.to;
@@ -223,6 +225,7 @@ ResultCode playTurn(GameState* state) {
     }
     
     if (returnCode == SERVER_ERROR || returnCode == PARAM_ERROR) {
+        
         if (myMoveResult.message) {
             if (strstr(myMoveResult.message, "Total score") != NULL ||
                 (strstr(myMoveResult.message, "Georges:") != NULL && 
@@ -251,6 +254,7 @@ ResultCode playTurn(GameState* state) {
         return returnCode;
     }
     
+    // Update game state based on our move
     switch (myMove.action) {
         case CLAIM_ROUTE:
             if (myMoveResult.state == NORMAL_MOVE) {
@@ -275,6 +279,7 @@ ResultCode playTurn(GameState* state) {
             } else {
                 if (myMoveResult.state == 1) {
                     state->lastTurn = 2;
+                    
                     cardDrawnThisTurn = 0;
                     cleanupMoveResult(&myMoveResult);
                     return ALL_GOOD;
@@ -361,6 +366,7 @@ ResultCode playTurn(GameState* state) {
     
     updateCityConnectivity(state);
     
+    // Handle second card if needed
     if (cardDrawnThisTurn == 1) {
         ResultCode updateResult = getBoardState(&boardState);
         if (updateResult != ALL_GOOD) {

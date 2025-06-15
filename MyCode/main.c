@@ -241,6 +241,7 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
                 if (gameState.wagonsLeft <= 0) {
                     MoveResult immediateCheck = {0};
                     ResultCode immediateCode = getMove(&dummyMove, &immediateCheck);
+                    (void)immediateCode;
                     
                     if (immediateCheck.state != 0) {
                         if (immediateCheck.message) {
@@ -266,6 +267,7 @@ int playOneGame(int gameNumber, GameResult* gameResult) {
             else {
                 MoveResult errorResult = {0};
                 ResultCode errorCode = getMove(&dummyMove, &errorResult);
+                (void)errorCode;
                 
                 if (errorResult.state != 0) {
                     if (errorResult.message) {

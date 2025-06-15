@@ -7,17 +7,19 @@ int simpleStrategy(GameState* state, MoveData* moveData);
 int decideNextMove(GameState* state, MoveData* moveData);
 int findBestObjective(GameState* state);
 int canTakeRoute(GameState* state, int from, int to, MoveData* moveData);
-int drawCardsOrTakeRoute(GameState* state, MoveData* moveData);
+int drawCardsForRoute(GameState* state, int from, int to, MoveData* moveData);
 int drawBestCard(GameState* state, MoveData* moveData);
-void chooseObjectives(GameState* state, Objective* objectives, unsigned char* chooseObjectives);
+void simpleChooseObjectives(GameState* state, Objective* objectives, unsigned char* chooseObjectives);
+void chooseObjectivesStrategy(GameState* state, Objective* objectives, unsigned char* chooseObjectives);
 int emergencyUnblock(GameState* state, MoveData* moveData);
+int alternativeStrategy(GameState* state, MoveData* moveData, void* objData, int objectiveCount);
 int findAlternativePath(GameState* state, int from, int to, MoveData* moveData);
-int drawCardsAggressively(GameState* state, int from, int to, MoveData* moveData);
-int isAntiMode(GameState* state);
+int drawCardsForRouteAggressively(GameState* state, int from, int to, MoveData* moveData);
+int isAntiAdversaireMode(GameState* state);
 int handleAntiAdversaire(GameState* state, MoveData* moveData);
 int findQuickestObjective(GameState* state);
-int buildFromNetwork(GameState* state, MoveData* moveData);
-int takeAnyRoute(GameState* state, MoveData* moveData);
-int workOnObjective(GameState* state, MoveData* moveData, int objectiveIndex);
+int buildFromExistingNetwork(GameState* state, MoveData* moveData);
+int takeAnyProfitableRoute(GameState* state, MoveData* moveData);
+int workOnSpecificObjective(GameState* state, MoveData* moveData, int objectiveIndex);
 
 #endif
