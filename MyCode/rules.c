@@ -4,7 +4,6 @@
 
 int canClaimRoute(GameState* state, int from, int to, CardColor color, int* nbLocomotives) {
     if (!state || !nbLocomotives) {
-        printf("ERROR: Invalid parameters in canClaimRoute\n");
         return 0;
     }
     
@@ -108,12 +107,12 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
     int count = 0;
     
     if (!state || !possibleRoutes || !possibleColors || !possibleLocomotives) {
-        printf("ERROR: Invalid parameters in findPossibleRoutes\n");
         return 0;
     }
     
     const int MAX_ROUTES_TO_PROCESS = 50;
     
+    // Sync card count
     int totalCards = 0;
     for (int c = 1; c < 10; c++) {
         totalCards += state->nbCardsByColor[c];
@@ -135,8 +134,6 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
         
         if (state->routes[i].from < 0 || state->routes[i].from >= state->nbCities || 
             state->routes[i].to < 0 || state->routes[i].to >= state->nbCities) {
-            printf("ERROR: Route %d has invalid cities: %d -> %d\n", 
-                   i, state->routes[i].from, state->routes[i].to);
             continue;
         }
 
@@ -235,8 +232,6 @@ int findPossibleRoutes(GameState* state, int* possibleRoutes, CardColor* possibl
         possibleRoutes[count] = -1;
     }
     
-    printf("Found %d possible routes\n", count);
-    
     return count;
 }
 
@@ -271,6 +266,7 @@ int isObjectiveCompleted(GameState* state, Objective objective) {
 int calculateScore(GameState* state) {
     int score = 0;
     
+    // Points from routes
     for (int i = 0; i < state->nbClaimedRoutes; i++) {
         int routeIndex = state->claimedRoutes[i];
         
@@ -284,6 +280,7 @@ int calculateScore(GameState* state) {
         }
     }
     
+    // Points from objectives
     for (int i = 0; i < state->nbObjectives; i++) {
         if (isObjectiveCompleted(state, state->objectives[i])) {
             score += state->objectives[i].score;
@@ -320,29 +317,24 @@ int isValidMove(GameState* state, MoveData* move) {
             CardColor color = move->claimRoute.color;
             
             if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-                printf("VALIDATION FAILED: Invalid cities %d->%d\n", from, to);
                 return 0;
             }
             
             if (color < PURPLE || color > LOCOMOTIVE) {
-                printf("VALIDATION FAILED: Invalid color %d\n", color);
                 return 0;
             }
             
             int routeIndex = findRouteIndex(state, from, to);
             if (routeIndex < 0) {
-                printf("VALIDATION FAILED: Route %d->%d does not exist\n", from, to);
                 return 0;
             }
             
             if (state->routes[routeIndex].owner != 0) {
-                printf("VALIDATION FAILED: Route %d->%d already taken\n", from, to);
                 return 0;
             }
             
             int nbLoco;
             if (!canClaimRoute(state, from, to, color, &nbLoco)) {
-                printf("VALIDATION FAILED: Not enough cards for %d->%d\n", from, to);
                 return 0;
             }
             
@@ -352,7 +344,6 @@ int isValidMove(GameState* state, MoveData* move) {
         case DRAW_CARD: {
             CardColor card = move->drawCard;
             if (card < PURPLE || card > LOCOMOTIVE) {
-                printf("VALIDATION FAILED: Invalid card to draw %d\n", card);
                 return 0;
             }
             return 1;
@@ -363,7 +354,6 @@ int isValidMove(GameState* state, MoveData* move) {
             return 1;
             
         default:
-            printf("VALIDATION FAILED: Unknown action %d\n", move->action);
             return 0;
     }
 }

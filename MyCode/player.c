@@ -15,20 +15,14 @@ void cleanupMoveResult(MoveResult *moveResult) {
 
 void initPlayer(GameState* state, GameData* gameData) {
     if (!state || !gameData) {
-        printf("Error: NULL state or gameData in initPlayer\n");
         return;
     }
     
     initGameState(state, gameData);
     
-    printf("Player initialized\n");
-    printf("Starting game with %d cities and %d tracks\n", state->nbCities, state->nbTracks);
-    
     for (int i = 0; i < 4; i++) {
         if (gameData->cards[i] >= 0 && gameData->cards[i] < 10) {
             addCardToHand(state, gameData->cards[i]);
-        } else {
-            printf("Warning: Invalid card color: %d\n", gameData->cards[i]);
         }
     }
 }
@@ -38,35 +32,24 @@ ResultCode playFirstTurn(GameState* state) {
     MoveData myMove;
     MoveResult myMoveResult = {0};
     
-    printf("First turn: drawing objectives\n");
-    
     myMove.action = DRAW_OBJECTIVES;
     
     returnCode = sendMove(&myMove, &myMoveResult);
     
     if (returnCode != ALL_GOOD) {
-        printf("Error sending DRAW_OBJECTIVES: 0x%x\n", returnCode);
-        if (myMoveResult.message) {
-            printf("Server message: %s\n", myMoveResult.message);
-        }
         cleanupMoveResult(&myMoveResult);
         return returnCode;
     }
-    
-    printf("Received objectives, now choosing which to keep\n");
     
     bool objectivesValid = true;
     for (int i = 0; i < 3; i++) {
         if ((int)myMoveResult.objectives[i].from >= state->nbCities ||
             (int)myMoveResult.objectives[i].to >= state->nbCities) {
-            printf("WARNING: Invalid objective received: From %u to %u\n", 
-                   myMoveResult.objectives[i].from, myMoveResult.objectives[i].to);
             objectivesValid = false;
         }
     }
     
     if (!objectivesValid) {
-        printf("ERROR: Invalid objectives received from server\n");
         cleanupMoveResult(&myMoveResult);
         return PARAM_ERROR;
     }
@@ -84,7 +67,6 @@ ResultCode playFirstTurn(GameState* state) {
     }
     
     if (!atLeastOneChosen) {
-        printf("WARNING: No objectives chosen, selecting the first one by default\n");
         chooseObjectives[0] = 1;
     }
     
@@ -116,17 +98,12 @@ ResultCode playFirstTurn(GameState* state) {
     returnCode = sendMove(&chooseMove, &chooseMoveResult);
     
     if (returnCode != ALL_GOOD) {
-        printf("Error choosing objectives: 0x%x\n", returnCode);
-        if (chooseMoveResult.message) {
-            printf("Server message: %s\n", chooseMoveResult.message);
-        }
         cleanupMoveResult(&chooseMoveResult);
         return returnCode;
     }
     
     addObjectives(state, chosenObjectives, objectivesToKeep);
     
-    printf("Successfully chose objectives\n");
     cleanupMoveResult(&chooseMoveResult);
     
     return ALL_GOOD;
@@ -142,10 +119,14 @@ ResultCode playTurn(GameState* state) {
     
     returnCode = getBoardState(&boardState);
     if (returnCode != ALL_GOOD) {
-        printf("Error getting board state: 0x%x\n", returnCode);
         return returnCode;
     }
     
+    if (state->wagonsLeft <= 0) {
+        state->lastTurn = 1;
+        return ALL_GOOD; 
+    }
+
     for (int i = 0; i < 5; i++) {
         state->visibleCards[i] = boardState.card[i];
     }
@@ -183,7 +164,6 @@ ResultCode playTurn(GameState* state) {
         int to = myMove.claimRoute.to;
         
         if (from < 0 || from >= state->nbCities || to < 0 || to >= state->nbCities) {
-            printf("Invalid cities: %d -> %d\n", from, to);
             myMove.action = DRAW_BLIND_CARD;
         }
         else {
@@ -191,22 +171,18 @@ ResultCode playTurn(GameState* state) {
             if (routeIndex >= 0) {
                 int length = state->routes[routeIndex].length;
                 if (length > state->wagonsLeft) {
-                    printf("Not enough wagons (need %d, have %d)\n", length, state->wagonsLeft);
                     myMove.action = DRAW_BLIND_CARD;
                 }
                 
                 if (state->routes[routeIndex].owner != 0) {
-                    printf("Route already taken\n");
                     myMove.action = DRAW_BLIND_CARD;
                 }
             } else {
-                printf("Route does not exist\n");
                 myMove.action = DRAW_BLIND_CARD;
             }
         }
         
         if (myMove.claimRoute.color < PURPLE || myMove.claimRoute.color > LOCOMOTIVE) {
-            printf("Invalid color: %d\n", myMove.claimRoute.color);
             myMove.action = DRAW_BLIND_CARD;
         }
     }
@@ -218,9 +194,7 @@ ResultCode playTurn(GameState* state) {
             strstr(myMoveResult.message, "✔Objective") != NULL ||
             strstr(myMoveResult.message, "longest path") != NULL) {
             
-            printf("=== GAME RESULTS DETECTED IN OUR MOVE RESPONSE ===\n");
-            printf("%s\n", myMoveResult.message);
-            state->lastTurn = 2; // Force game end
+            state->lastTurn = 2;
             cleanupMoveResult(&myMoveResult);
             return ALL_GOOD;
         }
@@ -231,24 +205,17 @@ ResultCode playTurn(GameState* state) {
          strstr(myMoveResult.message, "Total score:") != NULL ||
          strstr(myMoveResult.message, "longest path") != NULL)) {
         
-        printf("=== GAME RESULTS DETECTED IN NORMAL RESPONSE ===\n");
-        printf("%s\n", myMoveResult.message);
         state->lastTurn = 2;
         cleanupMoveResult(&myMoveResult);
         return ALL_GOOD;
     }
     
     if (returnCode == ALL_GOOD && myMoveResult.state == 1) {
-        printf("=== GAME ENDED - MOVE STATE INDICATES END ===\n");
         state->lastTurn = 2;
         
         MoveData finalMove;
         MoveResult finalResult = {0};
         getMove(&finalMove, &finalResult);
-        
-        if (finalResult.message) {
-            printf("Final results message: %s\n", finalResult.message);
-        }
         
         cleanupMoveResult(&finalResult);
         cleanupMoveResult(&myMoveResult);
@@ -256,16 +223,12 @@ ResultCode playTurn(GameState* state) {
     }
     
     if (returnCode == SERVER_ERROR || returnCode == PARAM_ERROR) {
-        
         if (myMoveResult.message) {
-            printf("Server response: %s\n", myMoveResult.message);
-            
             if (strstr(myMoveResult.message, "Total score") != NULL ||
                 (strstr(myMoveResult.message, "Georges:") != NULL && 
                  strstr(myMoveResult.message, "PlayNice:") != NULL) ||
                 strstr(myMoveResult.message, "longest path") != NULL) {
                 
-                printf("=== GAME RESULTS RECEIVED ===\n");
                 state->lastTurn = 2;
                 cleanupMoveResult(&myMoveResult);
                 return ALL_GOOD;
@@ -273,7 +236,6 @@ ResultCode playTurn(GameState* state) {
             
             if (strstr(myMoveResult.message, "Bad protocol") ||
                 strstr(myMoveResult.message, "WAIT_GAME")) {
-                printf("=== GAME ENDED - PROTOCOL MESSAGE ===\n");
                 state->lastTurn = 2;
                 cleanupMoveResult(&myMoveResult);
                 return ALL_GOOD;
@@ -285,7 +247,6 @@ ResultCode playTurn(GameState* state) {
     }
     
     if (returnCode != ALL_GOOD) {
-        printf("Error sending move: 0x%x\n", returnCode);
         cleanupMoveResult(&myMoveResult);
         return returnCode;
     }
@@ -312,12 +273,8 @@ ResultCode playTurn(GameState* state) {
                     state->lastTurn = 1;
                 }
             } else {
-                printf("CLAIM_ROUTE not confirmed, state: %d\n", myMoveResult.state);
-                
                 if (myMoveResult.state == 1) {
-                    printf("=== GAME ENDED INDICATED BY MOVE STATE ===\n");
                     state->lastTurn = 2;
-                    
                     cardDrawnThisTurn = 0;
                     cleanupMoveResult(&myMoveResult);
                     return ALL_GOOD;
@@ -382,7 +339,6 @@ ResultCode playTurn(GameState* state) {
                 returnCode = sendMove(&chooseMove, &chooseMoveResult);
                 
                 if (returnCode != ALL_GOOD) {
-                    printf("Error choosing objectives: 0x%x\n", returnCode);
                     cleanupMoveResult(&chooseMoveResult);
                     return returnCode;
                 }
@@ -408,7 +364,6 @@ ResultCode playTurn(GameState* state) {
     if (cardDrawnThisTurn == 1) {
         ResultCode updateResult = getBoardState(&boardState);
         if (updateResult != ALL_GOOD) {
-            printf("Error getting board state for second card: 0x%x\n", updateResult);
             return updateResult;
         }
         
@@ -437,7 +392,6 @@ ResultCode playTurn(GameState* state) {
         returnCode = sendMove(&secondCardMove, &secondCardResult);
         
         if (returnCode != ALL_GOOD) {
-            printf("Error drawing second card: 0x%x\n", returnCode);
             cleanupMoveResult(&secondCardResult);
             return returnCode;
         }
